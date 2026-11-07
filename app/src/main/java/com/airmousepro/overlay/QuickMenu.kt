@@ -9,9 +9,12 @@ import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.Display
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.VolumeUp
@@ -23,6 +26,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.ComposeView
 import com.airmousepro.AirMouseApp
 import com.airmousepro.MainActivity
+import com.airmousepro.data.DEFAULT_DIAL
+import com.airmousepro.data.OLD_DEFAULT_DIAL
 import com.airmousepro.hid.Consumer
 import com.airmousepro.hid.HidController
 import com.airmousepro.ui.AirMouseTheme
@@ -42,6 +47,12 @@ data class DialItem(val id: String, val label: String, val icon: ImageVector)
 class QuickMenu(private val app: AirMouseApp) {
     enum class Mode { Bubble, Dial, Pad }
 
+    private companion object {
+        const val TARGET_DP = 110          // size of the invisible window that holds the remove circle
+        const val TARGET_BOTTOM_DP = 56    // gap between the circle's window and the bottom of the screen
+        const val TARGET_PULL_DP = 80      // how close the bubble must get before the target grabs it
+    }
+
     private val ctx: Context = app.applicationContext
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val settings = app.settings
@@ -58,8 +69,21 @@ class QuickMenu(private val app: AirMouseApp) {
     private var padX = 60
     private var padY = 240
 
+    // The "drop here to remove" circle shown at the bottom centre while the bubble is dragged.
+    private var targetRoot: OverlayRoot? = null
+    private var targetParams: WindowManager.LayoutParams? = null
+    private var targetVisible by mutableStateOf(false)
+    private var targetActive by mutableStateOf(false)
+    private var dragX = 0f
+    private var dragY = 0f
+
     fun start() {
         if (job != null) return
+        // Dials saved before brightness existed get it added, once, if they were still on the default layout.
+        if (!settings.dialMigrated) {
+            if (settings.dialSlots == OLD_DEFAULT_DIAL) settings.dialSlots = DEFAULT_DIAL
+            settings.dialMigrated = true
+        }
         job = app.appScope.launch {
             combine(hid.stateFlow, settings.version) { s, _ -> s }.collect { refresh() }
         }
@@ -109,6 +133,29 @@ class QuickMenu(private val app: AirMouseApp) {
         }
         rootView.addView(compose)
 
+        // The remove target goes in first so the bubble is drawn above it. It never takes touches.
+        val targetView = OverlayRoot(ctx) {}
+        lifecycleOwner.attachTo(targetView)
+        targetView.addView(ComposeView(ctx).apply { setContent { AirMouseTheme { RemoveTargetUi(targetVisible, targetActive) } } })
+        val tSize = dp(TARGET_DP)
+        val tParams = WindowManager.LayoutParams(
+            tSize, tSize,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (screenW - tSize) / 2
+            y = screenH - tSize - dp(TARGET_BOTTOM_DP)
+        }
+        if (runCatching { wm.addView(targetView, tParams) }.isSuccess) {
+            targetRoot = targetView
+            targetParams = tParams
+        }
+
         val size = bubblePx()
         val params = WindowManager.LayoutParams(
             size, size,
@@ -134,6 +181,10 @@ class QuickMenu(private val app: AirMouseApp) {
         val r = root ?: return
         owner?.destroy()
         runCatching { wm.removeView(r) }
+        targetRoot?.let { runCatching { wm.removeView(it) } }
+        targetRoot = null
+        targetVisible = false
+        targetActive = false
         root = null
         owner = null
         lp = null
@@ -161,6 +212,14 @@ class QuickMenu(private val app: AirMouseApp) {
 
     private fun onConfigChanged() {
         measureScreen()
+        // Keep the remove circle at the bottom centre after a rotation.
+        val tp = targetParams
+        val tr = targetRoot
+        if (tp != null && tr != null) {
+            tp.x = (screenW - tp.width) / 2
+            tp.y = screenH - tp.height - dp(TARGET_BOTTOM_DP)
+            runCatching { wm.updateViewLayout(tr, tp) }
+        }
         val p = lp ?: return
         when (mode) {
             Mode.Bubble -> {
@@ -200,16 +259,50 @@ class QuickMenu(private val app: AirMouseApp) {
         update()
     }
 
+    private fun beginDrag() {
+        val p = lp ?: return
+        dragX = p.x.toFloat()
+        dragY = p.y.toFloat()
+        targetVisible = true
+    }
+
     private fun dragBubble(dx: Float, dy: Float) {
         val p = lp ?: return
-        p.x = (p.x + dx).roundToInt().coerceIn(0, (screenW - p.width).coerceAtLeast(0))
-        p.y = (p.y + dy).roundToInt().coerceIn(0, (screenH - p.height).coerceAtLeast(0))
+        // The finger's own position is tracked separately, so the bubble can be held on the target and still released.
+        dragX = (dragX + dx).coerceIn(0f, (screenW - p.width).coerceAtLeast(0).toFloat())
+        dragY = (dragY + dy).coerceIn(0f, (screenH - p.height).coerceAtLeast(0).toFloat())
+        val tSize = dp(TARGET_DP)
+        val targetCx = screenW / 2f
+        val targetCy = screenH - dp(TARGET_BOTTOM_DP) - tSize / 2f
+        val dist = Math.hypot((dragX + p.width / 2f - targetCx).toDouble(), (dragY + p.height / 2f - targetCy).toDouble())
+        val wasActive = targetActive
+        targetActive = dist < dp(TARGET_PULL_DP)
+        if (targetActive && !wasActive) root?.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+        if (targetActive) {
+            p.x = (targetCx - p.width / 2f).roundToInt()
+            p.y = (targetCy - p.height / 2f).roundToInt()
+        } else {
+            p.x = dragX.roundToInt()
+            p.y = dragY.roundToInt()
+        }
         update()
     }
 
-    /** Snap to the nearest screen edge and remember where the bubble lives. */
+    /** Turns the floating menu off. It can be switched back on in Settings or with the Quick settings tile. */
+    private fun removeBubble() {
+        settings.quickMenu = false
+        Toast.makeText(ctx, "Quick menu off. Turn it back on in Settings or the Quick settings tile.", Toast.LENGTH_LONG).show()
+    }
+
+    /** Snap to the nearest screen edge and remember where the bubble lives, or remove it if dropped on the X. */
     private fun releaseBubble() {
         val p = lp ?: return
+        targetVisible = false
+        if (targetActive) {
+            targetActive = false
+            removeBubble()
+            return
+        }
         val size = p.width
         val side = if (p.x + size / 2 < screenW / 2) 0 else 1
         settings.bubbleSide = side
@@ -237,6 +330,7 @@ class QuickMenu(private val app: AirMouseApp) {
         "touchpad" to DialItem("b:touchpad", "Touchpad", Icons.Rounded.TouchApp),
         "keys" to DialItem("b:keys", "Keyboard", Icons.Rounded.Keyboard),
         "volume" to DialItem("b:volume", "Volume", Icons.Rounded.VolumeUp),
+        "brightness" to DialItem("b:brightness", "Brightness", Icons.Rounded.LightMode),
         "playpause" to DialItem("b:playpause", "Play / pause", Icons.Rounded.PlayArrow),
     )
 
@@ -283,6 +377,8 @@ class QuickMenu(private val app: AirMouseApp) {
                 sizeDp = settings.bubbleSize,
                 opacity = settings.bubbleOpacity,
                 onTap = { switchTo(Mode.Dial) },
+                onDoubleTap = { openApp(tab = -1) },
+                onDragStart = ::beginDrag,
                 onDrag = ::dragBubble,
                 onRelease = ::releaseBubble,
             )
@@ -292,8 +388,20 @@ class QuickMenu(private val app: AirMouseApp) {
                 cyFraction = settings.bubbleY,
                 screenW = screenW,
                 screenH = screenH,
+                volume = hid.volume,
+                brightness = hid.brightness,
+                muted = hid.muted,
                 onExecute = ::execute,
-                onVolume = { up -> hid.consumer(if (up) Consumer.VOL_UP else Consumer.VOL_DOWN) },
+                onKnob = { kind, up ->
+                    val usage = when {
+                        kind == "volume" && up -> Consumer.VOL_UP
+                        kind == "volume" -> Consumer.VOL_DOWN
+                        up -> Consumer.BRIGHTNESS_UP
+                        else -> Consumer.BRIGHTNESS_DOWN
+                    }
+                    hid.consumer(usage)
+                },
+                onRemove = ::removeBubble,
                 onDismiss = { switchTo(Mode.Bubble) },
             )
             Mode.Pad -> PadUi(hid = hid, onDrag = ::dragPad, onClose = { switchTo(Mode.Bubble) })

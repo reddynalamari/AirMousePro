@@ -243,7 +243,9 @@ class UpdateManager(private val app: AirMouseApp) {
         val dir = File(ctx.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() }
         val out = File(dir, release.apkName)
+        // Fail closed: without a published checksum there is nothing to verify the download against.
         val expected = expectedHash(release)
+            ?: throw IOException("This release has no checksum, so it was not installed.")
         val c = open(release.apkUrl)
         try {
             if (c.responseCode != 200) throw IOException("The download failed (${c.responseCode}).")
@@ -264,7 +266,7 @@ class UpdateManager(private val app: AirMouseApp) {
                 }
             }
             val actual = digest.digest().joinToString("") { "%02x".format(it) }
-            if (expected != null && actual != expected) {
+            if (actual != expected) {
                 out.delete()
                 throw IOException("The downloaded file did not match its checksum, so it was discarded.")
             }

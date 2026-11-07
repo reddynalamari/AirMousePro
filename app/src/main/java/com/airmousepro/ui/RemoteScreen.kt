@@ -12,6 +12,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.BrightnessHigh
+import androidx.compose.material.icons.rounded.BrightnessLow
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowLeft
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -37,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.airmousepro.appSettings
 import com.airmousepro.hid.Consumer
 import com.airmousepro.hid.HidController
@@ -100,6 +104,18 @@ private fun MediaPad(hid: HidController) {
         Pad(Icons.Rounded.VolumeOff, "Mute") { hid.consumer(Consumer.MUTE) }
         Pad(Icons.Rounded.VolumeUp, "Volume up") { hid.consumer(Consumer.VOL_UP) }
     }
+    Text(
+        if (hid.muted) "Volume muted" else "Volume about ${hid.volume}%",
+        fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Pad(Icons.Rounded.BrightnessLow, "Brightness down") { hid.consumer(Consumer.BRIGHTNESS_DOWN) }
+        Pad(Icons.Rounded.BrightnessHigh, "Brightness up") { hid.consumer(Consumer.BRIGHTNESS_UP) }
+    }
+    Text(
+        "Brightness about ${hid.brightness}%",
+        fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+    )
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Pad(Icons.Rounded.NavigateBefore, "Previous slide") { hid.keyCombo(0, Key.PAGE_UP) }
         Pad(Icons.Rounded.NavigateNext, "Next slide") { hid.keyCombo(0, Key.PAGE_DOWN) }

@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.KeyEvent
 import android.view.WindowManager
@@ -163,8 +164,20 @@ private val tabs = listOf(
 
 @Composable
 private fun App(hid: HidController) {
-    var tab by remember { mutableIntStateOf(0) }
+    // Already connected when the app opens (for example from the floating bubble): go straight to the mouse.
+    var tab by remember { mutableIntStateOf(if (hid.state == HidController.State.Connected) 1 else 0) }
     var showSettings by remember { mutableStateOf(false) }
+    val launchedAt = remember { SystemClock.elapsedRealtime() }
+    var launchNavDone by remember { mutableStateOf(hid.state == HidController.State.Connected) }
+
+    // Opening flow: the app searches the recent devices; when one connects, jump to the mouse. If none does,
+    // the Devices tab, which is already showing, is where you configure things.
+    LaunchedEffect(hid.state) {
+        if (hid.state == HidController.State.Connected && !launchNavDone) {
+            launchNavDone = true
+            if (SystemClock.elapsedRealtime() - launchedAt < 60_000 && tab == 0) tab = 1
+        }
+    }
     val landscape = isLandscape()
     val ctx = LocalContext.current
     val settings = ctx.appSettings

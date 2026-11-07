@@ -2,155 +2,159 @@
 
 # AirMouse Pro
 
-### Turn your Android phone into a Bluetooth mouse, trackpad, keyboard and remote.
-**No receiver. No desktop app. No drivers.** Your phone *is* the device.
+### Use your Android phone as a Bluetooth mouse, trackpad, keyboard, gamepad and remote.
+Nothing to install on the computer or TV: the phone pairs as an ordinary Bluetooth device.
 
 [![Latest release](https://img.shields.io/github/v/release/reddynalamari/AirMousePro?style=for-the-badge&color=6C63FF&label=release)](https://github.com/reddynalamari/AirMousePro/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/reddynalamari/AirMousePro/total?style=for-the-badge&color=00C896)](https://github.com/reddynalamari/AirMousePro/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/reddynalamari/AirMousePro/release.yml?style=for-the-badge&label=build)](https://github.com/reddynalamari/AirMousePro/actions)
 ![Android 9+](https://img.shields.io/badge/Android-9%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white)
 [![License](https://img.shields.io/github/license/reddynalamari/AirMousePro?style=for-the-badge)](LICENSE)
-![Kotlin](https://img.shields.io/badge/Kotlin-Compose-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white)
 
-[**Download APK**](https://github.com/reddynalamari/AirMousePro/releases/latest) · [Features](#-features) · [Quick start](#-quick-start) · [Build](#-build-from-source) · [Releases](#-automatic-releases)
+[**Download**](https://github.com/reddynalamari/AirMousePro/releases/latest) · [Features](#features) · [Quick start](#quick-start) · [Privacy and security](#privacy-and-security) · [Updates](#updates) · [Help](#troubleshooting)
 
 </div>
 
 ---
+
+## What it is
+
+AirMouse Pro makes your phone appear as a standard **Bluetooth mouse and keyboard**. Any computer or TV that accepts one can be controlled, with no receiver, driver or companion app on the other side.
+
+It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android TV should work because they accept Bluetooth input devices too, but they have not been tested yet.
 
 ## Features
 
-| | |
+| Area | What you get |
 |---|---|
-| **Air mouse** | Hold a button and point the phone like a laser pointer. Gyroscope-driven at ~125 Hz with dead-zone tremor filtering and an adjustable sensitivity slider. |
-| **Laptop-style trackpad** | One-finger move, tap to click, tap-and-drag, two-finger scroll in both axes, pinch to zoom, two-finger right-click, three-finger swipes for Task View / desktop / app switch. |
-| **Full keyboard** | Type on your phone and it appears on the connected device, including modifier combos. |
-| **Remote control** | D-pad, OK, media and volume keys, tuned for Android TV and Smart TVs. |
-| **Shortcuts & macros** | Build your own multi-step macros (key combos, text, media keys, clicks, waits). Ships with Copy, Paste, Desktop, Lock, Snip and Mic-mute. Templates for "open website" / "open app" on every OS. |
-| **Gestures** | Shake twice to toggle the air mouse, twist your wrist for Alt+←/→ back and forward. |
-| **Background service** | Foreground service keeps the connection alive when the screen is off. |
-| **Built-in diagnostics** | Live HID log you can copy or share, plus one-tap *Re-register HID* when a host misbehaves. |
+| **Devices** | Remembers the devices you have connected to and reconnects to the most recent one that is available whenever the app opens. |
+| **Trackpad** | Move, tap to click, tap-and-drag, two-finger scroll in both directions, two-finger tap to right-click, three-finger tap to middle-click, pinch to zoom, and three-finger swipes for task view, desktop and app switching. |
+| **Air mouse** | The cursor follows where the phone points. Tap anywhere to click, two fingers to right-click, press and hold to drag, swipe to scroll, or use the volume keys as buttons. The pointer holds still while you tap, so clicks land where you aimed. |
+| **Keyboard** | On-screen keyboard with sticky Ctrl, Alt, Win and Shift. Layouts for US, UK, German, French and Spanish. Voice typing, typing your clipboard, and sharing text from any app to type it on the computer. |
+| **Deck** | Your own shortcuts and macros, with ready-made ones for copy, paste, lock, screenshot and more. Can open a website or an app on the computer. |
+| **Present** | A slide clicker with a timer, black and white screen, and a laser that follows the phone. |
+| **Gamepad** | A generic Bluetooth gamepad with two sticks, D-pad, buttons, triggers and optional gyro aiming. |
+| **Remote** | D-pad, media keys, volume and brightness. |
+| **Quick menu** | A floating bubble over any app. Tap it for a rotary dial with your favourite actions, including volume and brightness knobs. Double-tap to open the app, drag it to the X to remove it. |
+| **Make it yours** | Dark, AMOLED, light or system theme, five accent colours, adjustable haptics, rotation that follows your phone's auto-rotate switch, and landscape layouts. |
+| **Updates and backup** | Finds new versions, shows older ones, and backs up your settings and shortcuts to a file. |
 
-> AirMouse Pro registers itself as a standard **Bluetooth HID device** (the same profile a hardware mouse or keyboard uses), so anything that accepts a Bluetooth mouse works with it: Windows, macOS, Linux, ChromeOS, iPadOS, Android TV and more.
+## Screens
 
-## Screenshots
-
-<div align="center">
-
-| Devices | Touchpad | Quick bubble |
-|:--:|:--:|:--:|
-| <img src="docs/screenshots/devices.png" width="200"> | <img src="docs/screenshots/touchpad.png" width="200"> | <img src="docs/screenshots/bubble.png" width="200"> |
-
-| Shortcut deck | Keyboard | Settings |
-|:--:|:--:|:--:|
-| <img src="docs/screenshots/shortcuts.png" width="200"> | <img src="docs/screenshots/keyboard.png" width="200"> | <img src="docs/screenshots/settings.png" width="200"> |
-
-</div>
-
-<sub>UI design preview. Final screens may differ slightly.</sub>
+| Screen | What it is for |
+|---|---|
+| **Devices** | Connection status, recent and paired devices, and pairing help. |
+| **Mouse** | Switch between the **Touchpad** and the **Air mouse**. |
+| **Keys** | On-screen keyboard, text mode, voice typing, shortcut and function keys. |
+| **Deck** | Switch between **Shortcuts**, **Present** and **Gamepad**. |
+| **Remote** | D-pad, media, volume and brightness. |
+| **Settings** | The gear icon at the top. Appearance, touchpad, air mouse, keyboard, connection, quick menu, updates, backup and about. |
 
 ## Quick start
 
-1. **Install** the latest APK from the [Releases page](https://github.com/reddynalamari/AirMousePro/releases/latest) (allow *Install unknown apps* when asked).
-2. Open the app and grant the **Bluetooth** and **Notification** permissions.
-3. Tap **Make discoverable**.
-4. On your laptop / TV, open Bluetooth settings and **add the phone**. Accept the pairing code on both.
-5. Back in the app, tap your device under **Paired devices → Connect**. Done.
+1. Download the APK from the [latest release](https://github.com/reddynalamari/AirMousePro/releases/latest) and open it. Android asks you to allow installing from your browser or file manager the first time.
+2. Open the app and allow the **Nearby devices** permission, and notifications if asked.
+3. Tap **Make discoverable** on the Devices page.
+4. On the computer or TV, open Bluetooth settings and add the phone. Accept the pairing code on both.
+5. Tap the device in the app. From then on the app connects by itself when it opens.
 
-### Requirements
+**You need** Android 9 or newer and a phone whose Bluetooth supports the HID Device profile. Most do, but some manufacturers turn it off. The air mouse also needs a gyroscope.
 
-- Android **9 (API 28)** or newer
-- A phone whose Bluetooth stack supports the **HID Device profile** (most do; if registration fails, use *Settings → Re-register HID*)
-- Gyroscope for the air mouse (optional, trackpad/keyboard/remote work without it)
+## Known limits
 
-## How it works
+- **No screen sharing.** Bluetooth input carries controls only, so the phone cannot show the computer's screen.
+- **Volume and brightness levels are estimates.** A computer never reports its level back, so the app counts button presses. The number can drift if you change the level on the computer.
+- **The gamepad is a generic one.** Games that only support Xbox controllers need a wrapper such as Steam Input.
+- **Re-pair after some updates.** Windows remembers what a Bluetooth device can do. When a release changes that, its notes say so: remove the phone in Windows and pair again.
+- **Some symbols may differ on non-US keyboard layouts.** Letters and digits are reliable.
+- **Opening apps on Android TV is best effort.** Bluetooth cannot launch an app directly, so it searches for the name and opens the result.
+- **iPhone is not supported.** iOS does not let apps act as a Bluetooth input device.
 
-```
- Phone sensors / touch ──► AirMouseEngine / TrackpadGestures ──► HidController ──► Bluetooth HID ──► Host
-        (gyro, shake)            (gesture + motion maths)        (reports @ ≤140 Hz)
-```
+## Privacy and security
 
-- `hid/`: HID report descriptor, key map and Bluetooth HID Device controller
-- `input/`: gyroscope air-mouse engine and multi-touch trackpad gestures
-- `data/`: settings and the macro/shortcut store
-- `ui/`: Jetpack Compose screens (Connect, Mouse, Touchpad, Keyboard, Remote, Settings)
-- `service/`: foreground service that keeps HID alive
+AirMouse Pro can type and click on the computer it is connected to, so it is built to do as little as possible beyond that.
 
-## Build from source
+**Your data**
+- No accounts, no ads, no analytics and no tracking.
+- Settings, shortcuts and recent devices stay on your phone.
+- A backup is a plain file saved where you choose. Do not put passwords in shortcut text, because they would be stored and backed up as ordinary text.
 
-Requires JDK 17 and Android SDK 34.
+**The internet**
+- The only thing the app contacts is GitHub, over HTTPS, to look for a new release and to download an update you choose to install.
+- Switch the automatic check off in **Settings > Updates**. The app then only connects when you tap **Check now** or open **Version history**.
+
+**Updates**
+- A downloaded update is checked against its published SHA-256 checksum before it is installed, and is refused if the checksum is missing or does not match.
+- Android only accepts an update signed with the same key as the installed app, so a modified copy from elsewhere cannot replace it.
+- Android always asks you to confirm an install. The app cannot install anything silently.
+
+**Bluetooth**
+- Pairing is normal Bluetooth pairing, confirmed on both devices, and the app only connects to devices you have already paired.
+- Discoverable mode lasts five minutes and only starts when you tap the button.
+- Automatic reconnection only tries a few recently used, already paired devices.
+- While connected, the phone can send any keystroke to that computer, which is what a keyboard does. Keep your phone locked when you are away, and remove devices you no longer use from the phone's Bluetooth list.
+- There is no app lock yet.
+
+**Floating menu**
+- It uses Android's "display over other apps" permission only to draw the bubble and dial. The app does not use accessibility services and cannot read what other apps show.
+
+**Check a download**
+
+Compare the file's checksum with the one published next to it on the release page.
 
 ```bash
-gradle :app:assembleDebug      # debug APK
-gradle :app:assembleRelease    # minified release APK
+sha256sum AirMousePro-v0.0.1.apk
 ```
 
-Output lands in `app/build/outputs/apk/`. Or just open the folder in **Android Studio** and press Run.
+On Windows:
 
-## Automatic releases
+```bash
+certutil -hashfile AirMousePro-v0.0.1.apk SHA256
+```
 
-Every push to `main` that changes app code is built and published as a new GitHub Release, with no manual steps.
+**Reporting a security problem**
 
-| Trigger | Result |
-|---|---|
-| Push to `main` | New patch release: `v0.0.1` → `v0.0.2` → … with the APK and `SHA256SUMS.txt` attached and auto-generated release notes |
-| Actions → **Release** → *Run workflow* | Pick `minor` or `major` to bump that part instead |
-| Pull request / other branches | CI builds a debug APK (uploaded as a workflow artifact) |
-| README / `docs/` only changes | Ignored, no release |
+Please do not post it in a public issue. Open the **Security** tab of this repository and choose **Report a vulnerability**, so it stays private until it is fixed.
 
-The release workflow passes the tag as `versionName` and the run number as `versionCode`, so each APK is a valid upgrade of the last.
-
-### One-time setup: signing key
-
-Android only lets you install an update over an existing app if both APKs are signed with the same key, like a signature on a document. If the key changes between releases, the phone refuses the update and you have to uninstall first (losing your settings).
-
-GitHub builds each release on a fresh machine, so unless you give it your own key, it generates a new throwaway one every time. Creating a key once and storing it as a GitHub secret fixes that.
-
-1. Create the key on your PC (JDK is already installed for this project):
-
-   ```bash
-   keytool -genkeypair -v -keystore airmouse.jks -alias airmouse -keyalg RSA -keysize 2048 -validity 10000
-   ```
-
-   It asks for a password and some details. Remember the password.
-2. Convert the file to text so it can be stored as a secret:
-
-   ```bash
-   base64 -w0 airmouse.jks
-   ```
-3. On GitHub open **Settings > Secrets and variables > Actions > New repository secret** and add four secrets:
-
-   | Secret | Value |
-   |---|---|
-   | `KEYSTORE_BASE64` | the text printed in step 2 |
-   | `KEYSTORE_PASSWORD` | the password you chose |
-   | `KEY_ALIAS` | `airmouse` |
-   | `KEY_PASSWORD` | the same password (keytool uses it for both by default) |
-
-Keep `airmouse.jks` backed up and never commit it (it is already in `.gitignore`). If you lose it, you can no longer publish updates that install over existing ones.
-
-## Permissions
+### Permissions
 
 | Permission | Why |
 |---|---|
-| `BLUETOOTH_CONNECT` / `BLUETOOTH_ADVERTISE` | Pair with and appear as a Bluetooth HID device |
-| `FOREGROUND_SERVICE_CONNECTED_DEVICE` | Keep the connection alive in the background |
-| `POST_NOTIFICATIONS` | Show the connection notification |
+| Nearby devices (Bluetooth) | Pair with, connect to and appear as a Bluetooth device |
+| Notifications | Show the "running" notification with its Stop button |
+| Display over other apps | Draw the floating bubble and dial |
+| Run in the background | Keep the app alive so Android does not drop the Bluetooth connection |
+| Vibration | Haptic feedback and presentation timer cues |
+| Internet | Check GitHub for updates and download one you choose |
+| Install and uninstall apps | Hand an update you approved to Android's installer, and open the uninstall screen if you choose a manual rollback |
 
-No internet permission. Nothing leaves your phone except Bluetooth HID reports to the device you chose.
+## Updates
+
+The app checks for a new version when it opens, at most once every six hours, and asks before installing. You can also check by hand and browse every release in **Settings > Updates > Version history**.
+
+**Going back to an older version.** Android does not allow installing an older version over a newer one. The simple way is:
+
+1. **Settings > Backup > Back up**, and save the file.
+2. Uninstall AirMouse Pro.
+3. Install the older APK from the [Releases page](https://github.com/reddynalamari/AirMousePro/releases).
+4. **Settings > Backup > Restore**, and pick the file.
+
+## Troubleshooting
+
+| Problem | Try this |
+|---|---|
+| The computer pairs but never connects | Remove the phone from the computer, forget the computer on the phone, then pair again while the app is open. |
+| "Setup failed" on the Devices page | Tap **Refresh**. If it repeats, open **Settings > Developer options** and use **Re-register HID**. |
+| Keys type the wrong characters | Set the computer's keyboard layout in **Settings > Keyboard**. |
+| The gamepad is not detected | On Windows press Win+R, run `joy.cpl`, and tap **Test** in the app. If the pad responds there, the game needs an Xbox-style controller. |
+| An update will not install | The installed copy was signed with a different key. Back up in **Settings > Backup**, uninstall once, install the release APK, then restore. |
+| Something else | Copy the log from **Settings > Developer options** and attach it to an issue. Remove any device names or Bluetooth addresses you want to keep private first. |
 
 ## Contributing
 
-Issues and pull requests are welcome. Please make sure `gradle :app:assembleDebug` passes; CI runs it on every PR.
+Want to help build it? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Licensed under the [Apache License 2.0](LICENSE). Anyone, including companies, can use, modify, and distribute AirMouse Pro, free of charge. Any redistribution, fork, or product that includes this code must keep the [NOTICE](NOTICE) file and the copyright and license text, which credits the original author, and must state any changes made.
-
-## Author
+Licensed under the [Apache License 2.0](LICENSE). Anyone, including companies, can use, modify and distribute AirMouse Pro free of charge. Redistributions and forks must keep the [NOTICE](NOTICE) file and the copyright and license text, which credit the original author, and must state any changes made.
 
 Built by **Shashidhar Reddy**.
-
----
-
-<div align="center"><sub>If AirMouse Pro is useful to you, consider starring the repo</sub></div>

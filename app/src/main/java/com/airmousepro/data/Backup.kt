@@ -5,7 +5,7 @@ import org.json.JSONObject
 /** Saves and restores every preference, including shortcuts and the dial, as one JSON file. */
 object Backup {
     // These belong to this phone and this pairing, so they are not carried between installs.
-    private val skip = setOf("last_host", "original_bt_name", "update_last_check")
+    private val skip = setOf("last_host", "original_bt_name", "update_last_check", "connected_history", "vol_est", "bri_est")
 
     fun export(settings: AppSettings): String {
         val prefs = JSONObject()

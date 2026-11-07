@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -25,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Mouse
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Icon
@@ -43,8 +45,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -77,7 +81,15 @@ import kotlin.math.sin
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun BubbleUi(sizeDp: Int, opacity: Float, onTap: () -> Unit, onDrag: (Float, Float) -> Unit, onRelease: () -> Unit) {
+fun BubbleUi(
+    sizeDp: Int,
+    opacity: Float,
+    onTap: () -> Unit,
+    onDoubleTap: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Float, Float) -> Unit,
+    onRelease: () -> Unit,
+) {
     val settings = LocalContext.current.appSettings
     val view = LocalView.current
     // Fades while untouched so it stays out of the way, and wakes on touch.
@@ -97,15 +109,23 @@ fun BubbleUi(sizeDp: Int, opacity: Float, onTap: () -> Unit, onDrag: (Float, Flo
             .clip(CircleShape)
             .background(MaterialTheme.colorScheme.primary)
             .pointerInput(Unit) {
-                detectTapGestures(onTap = {
-                    touches++
-                    Haptics.tap(view, settings)
-                    onTap()
-                })
+                // Tap opens the dial, double-tap opens the app.
+                detectTapGestures(
+                    onTap = {
+                        touches++
+                        Haptics.tap(view, settings)
+                        onTap()
+                    },
+                    onDoubleTap = {
+                        touches++
+                        Haptics.tap(view, settings)
+                        onDoubleTap()
+                    },
+                )
             }
             .pointerInput(Unit) {
                 detectDragGestures(
-                    onDragStart = { touches++ },
+                    onDragStart = { touches++; onDragStart() },
                     onDragEnd = onRelease,
                     onDragCancel = onRelease,
                 ) { change, drag ->
@@ -119,17 +139,37 @@ fun BubbleUi(sizeDp: Int, opacity: Float, onTap: () -> Unit, onDrag: (Float, Flo
     }
 }
 
+/** The "drop here to remove" circle that appears at the bottom centre while the bubble is being dragged. */
+@Composable
+fun RemoveTargetUi(visible: Boolean, active: Boolean) {
+    val scale by animateFloatAsState(if (active) 1.3f else 1f, label = "targetScale")
+    val alpha by animateFloatAsState(if (visible) 1f else 0f, label = "targetAlpha")
+    Box(Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha; scaleX = scale; scaleY = scale }, contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .size(64.dp)
+                .clip(CircleShape)
+                .background(if (active) Color(0xFFFF453A) else Color.Black.copy(alpha = 0.6f))
+                .border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Rounded.Close, contentDescription = "Remove quick menu", tint = Color.White, modifier = Modifier.size(30.dp)) }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Rotary dial
 // ---------------------------------------------------------------------------------------------
 
 private const val STEP = 34f          // degrees between neighbouring items
-private const val VOLUME_STEP = 14f   // degrees of knob turn per volume key press
+private const val KNOB_STEP = 14f     // degrees of knob turn per volume or brightness key press
+
+private const val KNOB_VOLUME = "volume"
+private const val KNOB_BRIGHTNESS = "brightness"
 
 /**
  * A radio-style dial on the screen edge. Drag around the ring to turn it; each detent ticks, the item under the
- * pointer is enlarged, and the centre knob (or a second tap on the item) runs it. "Volume" turns the whole dial
- * into a volume knob.
+ * pointer is enlarged, and the centre knob (or a second tap on the item) runs it. "Volume" and "Brightness" turn the
+ * whole dial into a knob with a level readout. The X at the bottom hides the floating menu.
  */
 @Composable
 fun DialUi(
@@ -138,8 +178,12 @@ fun DialUi(
     cyFraction: Float,
     screenW: Int,
     screenH: Int,
+    volume: Int,
+    brightness: Int,
+    muted: Boolean,
     onExecute: (DialItem) -> Unit,
-    onVolume: (Boolean) -> Unit,
+    onKnob: (kind: String, up: Boolean) -> Unit,
+    onRemove: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val settings = LocalContext.current.appSettings
@@ -152,9 +196,11 @@ fun DialUi(
     val n = items.size.coerceAtLeast(1)
     val minRot = -(n - 1) * STEP
     var rot by remember { mutableFloatStateOf(0f) }
-    var volumeMode by remember { mutableStateOf(false) }
-    val idx = if (volumeMode) 0 else (-rot / STEP).roundToInt().coerceIn(0, n - 1)
+    // null = normal dial; "volume" or "brightness" = knob mode.
+    var knob by remember { mutableStateOf<String?>(null) }
+    val idx = if (knob != null) 0 else (-rot / STEP).roundToInt().coerceIn(0, n - 1)
     val selected = items.getOrNull(idx)
+    val level = when (knob) { KNOB_VOLUME -> volume; KNOB_BRIGHTNESS -> brightness; else -> -1 }
 
     val radius = min(172f * density, screenH / 2f - 12f * density).coerceAtLeast(96f * density)
     val itemRadius = radius * 0.72f
@@ -162,8 +208,8 @@ fun DialUi(
     val cx = if (side == 0) 0f else screenW.toFloat()
     val cy = (cyFraction * screenH).coerceIn(radius + 8f * density, (screenH - radius - 8f * density).coerceAtLeast(radius + 8f * density))
     val pointer = if (side == 0) 0f else 180f
-    val inward = if (side == 0) 1f else -1f
     val iconBox = 46f * density
+    val removeCenter = Offset(screenW / 2f, screenH - 64f * density)
 
     // A tick for every detent crossed, whether dragged or animated.
     var lastIdx by remember { mutableIntStateOf(idx) }
@@ -183,11 +229,19 @@ fun DialUi(
         }
     }
 
+    fun open(item: DialItem) {
+        when (item.id) {
+            "b:volume" -> knob = KNOB_VOLUME
+            "b:brightness" -> knob = KNOB_BRIGHTNESS
+            else -> onExecute(item)
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             // Keyed on the item ids, not the list object: a new list on every redraw would restart the gesture mid-drag.
-            .pointerInput(items.map { it.id }, side, cx, cy, radius, volumeMode) {
+            .pointerInput(items.map { it.id }, side, cx, cy, radius, knob) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     settle[0]?.cancel()
@@ -197,7 +251,7 @@ fun DialUi(
                     val onRing = startDist > knobR && startDist <= radius + 24f * density
                     var prev = Math.toDegrees(atan2(start.y, start.x).toDouble()).toFloat()
                     var travelled = 0f
-                    var volAcc = 0f
+                    var acc = 0f
 
                     do {
                         val ev = awaitPointerEvent()
@@ -210,11 +264,13 @@ fun DialUi(
                             while (delta < -180f) delta += 360f
                             prev = now
                             travelled += abs(delta) * hypot(p.x, p.y) * (PI.toFloat() / 180f)
-                            if (volumeMode) {
+                            val k = knob
+                            if (k != null) {
                                 rot += delta
-                                volAcc += delta
-                                while (volAcc >= VOLUME_STEP) { volAcc -= VOLUME_STEP; onVolume(true); Haptics.tick(view, settings) }
-                                while (volAcc <= -VOLUME_STEP) { volAcc += VOLUME_STEP; onVolume(false); Haptics.tick(view, settings) }
+                                // The gauge fills upward, so a finger moving up raises the level on either edge.
+                                acc += delta * (if (side == 0) -1f else 1f)
+                                while (acc >= KNOB_STEP) { acc -= KNOB_STEP; onKnob(k, true); Haptics.tick(view, settings) }
+                                while (acc <= -KNOB_STEP) { acc += KNOB_STEP; onKnob(k, false); Haptics.tick(view, settings) }
                             } else {
                                 rot = (rot + delta).coerceIn(minRot, 0f)
                             }
@@ -224,27 +280,29 @@ fun DialUi(
 
                     val tapped = travelled < 10f * density
                     if (!tapped) {
-                        if (!volumeMode) settleTo(-(((-rot) / STEP).roundToInt().coerceIn(0, n - 1)) * STEP)
+                        if (knob == null) settleTo(-(((-rot) / STEP).roundToInt().coerceIn(0, n - 1)) * STEP)
                         return@awaitEachGesture
                     }
-                    // A tap: knob runs, an item selects (or runs if already selected), outside dismisses.
-                    // The current selection is read now, because values captured at composition would be stale.
+                    // A tap. The X hides the menu, the knob runs the item, an item selects (or runs if already
+                    // selected), and anywhere outside the dial closes it. The selection is read now because values
+                    // captured at composition would be stale.
                     val curIdx = (-rot / STEP).roundToInt().coerceIn(0, n - 1)
                     val curSel = items.getOrNull(curIdx)
                     val up = down.position
                     val d = up - c
                     val dist = hypot(d.x, d.y)
                     when {
+                        hypot(up.x - removeCenter.x, up.y - removeCenter.y) < 38f * density -> onRemove()
                         dist <= knobR * 1.15f -> {
-                            if (volumeMode) {
-                                volumeMode = false
+                            if (knob != null) {
+                                knob = null
                             } else if (curSel != null) {
                                 Haptics.tap(view, settings)
-                                if (curSel.id == "b:volume") volumeMode = true else onExecute(curSel)
+                                open(curSel)
                             }
                         }
                         dist > radius + 10f * density -> onDismiss()
-                        !volumeMode -> {
+                        knob == null -> {
                             val hit = items.indices.minByOrNull { i ->
                                 val a = Math.toRadians((pointer + i * STEP + rot).toDouble())
                                 hypot(up.x - (cx + itemRadius * cos(a)).toFloat(), up.y - (cy + itemRadius * sin(a)).toFloat())
@@ -255,8 +313,7 @@ fun DialUi(
                                 if (near) {
                                     if (hit == curIdx) {
                                         Haptics.tap(view, settings)
-                                        val chosen = items[hit]
-                                        if (chosen.id == "b:volume") volumeMode = true else onExecute(chosen)
+                                        open(items[hit])
                                     } else {
                                         settleTo(-hit * STEP)
                                     }
@@ -285,6 +342,21 @@ fun DialUi(
                     strokeWidth = if (major) 2.dp.toPx() else 1.dp.toPx(),
                 )
             }
+            // Level gauge along the visible half of the ring, filling from the bottom to the top.
+            if (level >= 0) {
+                val r = radius - 28.dp.toPx()
+                val tl = Offset(cx - r, cy - r)
+                val sz = Size(r * 2, r * 2)
+                val stroke = Stroke(7.dp.toPx(), cap = StrokeCap.Round)
+                val sweep = 180f * level / 100f
+                if (side == 0) {
+                    drawArc(Color.White.copy(alpha = 0.12f), -90f, 180f, false, tl, sz, style = stroke)
+                    if (sweep > 0f) drawArc(accent, 90f, -sweep, false, tl, sz, style = stroke)
+                } else {
+                    drawArc(Color.White.copy(alpha = 0.12f), 90f, 180f, false, tl, sz, style = stroke)
+                    if (sweep > 0f) drawArc(accent, 90f, sweep, false, tl, sz, style = stroke)
+                }
+            }
             // Pointer notch.
             val pa = Math.toRadians(pointer.toDouble())
             val tip = radius - 22.dp.toPx()
@@ -301,7 +373,7 @@ fun DialUi(
             drawPath(path, accent)
         }
 
-        if (!volumeMode) {
+        if (knob == null) {
             items.forEachIndexed { i, item ->
                 Box(
                     Modifier
@@ -328,17 +400,26 @@ fun DialUi(
             }
         }
 
-        // Label for the item under the pointer, on the side facing the screen.
+        // Label on the side facing the screen. In knob mode it also shows the estimated level.
+        val labelPad = (radius / density + 18f).dp
         Box(
             Modifier
                 .align(if (side == 0) Alignment.CenterStart else Alignment.CenterEnd)
                 .offset { IntOffset(0, (cy - screenH / 2f).roundToInt()) }
-                .padding(start = (radius / density + 16f).dp.takeIf { side == 0 } ?: 0.dp, end = (radius / density + 16f).dp.takeIf { side != 0 } ?: 0.dp),
+                .padding(start = if (side == 0) labelPad else 0.dp, end = if (side != 0) labelPad else 0.dp),
         ) {
-            Text(
-                if (volumeMode) "Volume" else selected?.label.orEmpty(),
-                color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold,
-            )
+            if (knob != null) {
+                Column(horizontalAlignment = if (side == 0) Alignment.Start else Alignment.End) {
+                    Text(if (knob == KNOB_VOLUME) "Volume" else "Brightness", color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (knob == KNOB_VOLUME && muted) "Muted" else "$level%",
+                        color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold,
+                    )
+                    Text("estimate", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                }
+            } else {
+                Text(selected?.label.orEmpty(), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            }
         }
 
         // Centre knob, half hidden by the screen edge; its icon sits on the visible half.
@@ -351,10 +432,28 @@ fun DialUi(
             contentAlignment = if (side == 0) Alignment.CenterEnd else Alignment.CenterStart,
         ) {
             Icon(
-                if (volumeMode) Icons.Rounded.VolumeUp else (selected?.icon ?: Icons.Rounded.Mouse),
+                when (knob) {
+                    KNOB_VOLUME -> Icons.Rounded.VolumeUp
+                    KNOB_BRIGHTNESS -> Icons.Rounded.LightMode
+                    else -> selected?.icon ?: Icons.Rounded.Mouse
+                },
                 contentDescription = null, tint = Color.White,
                 modifier = Modifier.padding(horizontal = 8.dp).size(26.dp),
             )
+        }
+
+        // X at the bottom centre: hides the floating menu. The tap itself is handled by the gesture above.
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier.size(52.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.16f)).border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Close, contentDescription = "Hide quick menu", tint = Color.White) }
+            Text("Hide", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }

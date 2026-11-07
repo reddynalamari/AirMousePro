@@ -13,8 +13,8 @@ android {
         minSdk = 28
         targetSdk = 34
         // CI passes -PversionName / -PversionCode so every release gets a unique, increasing version.
-        versionCode = providers.gradleProperty("versionCode").map(String::toInt).getOrElse(6)
-        versionName = providers.gradleProperty("versionName").getOrElse("0.6")
+        versionCode = providers.gradleProperty("versionCode").map(String::toInt).getOrElse(7)
+        versionName = providers.gradleProperty("versionName").getOrElse("0.7")
     }
 
     // Optional release signing: set these env vars (CI secrets) to sign with your own key.

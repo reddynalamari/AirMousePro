@@ -32,9 +32,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import com.airmousepro.appSettings
 import com.airmousepro.applyOrientation
 import com.airmousepro.hid.HidController
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.hypot
 import kotlin.math.sqrt
 
@@ -128,6 +133,19 @@ fun GamepadScreen(hid: HidController) {
     val settings = ctx.appSettings
     val pad = remember { PadState(hid) }
     var gyro by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    var sent by remember { mutableIntStateOf(0) }
+    var failed by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    // Refresh the report counters a few times a second.
+    LaunchedEffect(Unit) {
+        while (true) {
+            sent = hid.gamepadSent
+            failed = hid.gamepadFailed
+            delay(400)
+        }
+    }
 
     // Landscape while this page is visible, then back to the user's own rotation policy.
     DisposableEffect(Unit) {
@@ -221,13 +239,35 @@ fun GamepadScreen(hid: HidController) {
                 Shoulder("L3", Modifier.size(s(44f), s(32f))) { pad.button(B_L3, it) }
                 Shoulder("R3", Modifier.size(s(44f), s(32f))) { pad.button(B_R3, it) }
             }
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (gyro) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { gyro = !gyro }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) { Text("Gyro aim", fontSize = 13.sp, color = if (gyro) Color.White else MaterialTheme.colorScheme.onSurface) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (gyro) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable { gyro = !gyro }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) { Text("Gyro aim", fontSize = 13.sp, color = if (gyro) Color.White else MaterialTheme.colorScheme.onSurface) }
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (testing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable(enabled = !testing && hid.state == HidController.State.Connected) {
+                            scope.launch {
+                                testing = true
+                                runSelfTest(pad)
+                                testing = false
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) { Text(if (testing) "Testing…" else "Test", fontSize = 13.sp, color = if (testing) Color.White else MaterialTheme.colorScheme.onSurface) }
+            }
+            // Live proof that reports are leaving the phone, to tell a link problem from a game that ignores the pad.
+            val line = when {
+                hid.state != HidController.State.Connected -> "Not connected. Connect on the Devices tab."
+                failed > 0 -> "Sending, but $failed reports failed ($sent ok)"
+                else -> "Connected to ${hid.hostName} · $sent reports sent"
+            }
+            Text(line, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f), maxLines = 2)
         }
 
         // Right side: bumpers, face buttons, right stick.
@@ -245,6 +285,44 @@ fun GamepadScreen(hid: HidController) {
             Stick(s(108f)) { x, y -> pad.rx = x; pad.ry = y; pad.push() }
         }
     }
+}
+
+/**
+ * Presses A, B, X and Y in turn, sweeps the left stick in a circle, then walks the D-pad around. Open the Windows
+ * "Set up USB game controllers" page (Win+R, joy.cpl) or a browser gamepad tester to watch it respond.
+ */
+private suspend fun runSelfTest(pad: PadState) {
+    for (bit in listOf(B_A, B_B, B_X, B_Y)) {
+        pad.button(bit, true)
+        delay(300)
+        pad.button(bit, false)
+        delay(150)
+    }
+    repeat(2) {
+        for (i in 0 until 36) {
+            val a = Math.toRadians(i * 10.0)
+            pad.lx = (kotlin.math.cos(a) * 100).toInt()
+            pad.ly = (kotlin.math.sin(a) * 100).toInt()
+            pad.push()
+            delay(25)
+        }
+    }
+    pad.lx = 0
+    pad.ly = 0
+    pad.push()
+    // Up, up-right, right, down-right, down, down-left, left, up-left.
+    val dirs = listOf(
+        booleanArrayOf(true, false, false, false), booleanArrayOf(true, true, false, false), booleanArrayOf(false, true, false, false),
+        booleanArrayOf(false, true, true, false), booleanArrayOf(false, false, true, false), booleanArrayOf(false, false, true, true),
+        booleanArrayOf(false, false, false, true), booleanArrayOf(true, false, false, true),
+    )
+    for (d in dirs) {
+        pad.up = d[0]; pad.right = d[1]; pad.down = d[2]; pad.left = d[3]
+        pad.push()
+        delay(260)
+    }
+    pad.up = false; pad.right = false; pad.down = false; pad.left = false
+    pad.push()
 }
 
 @Composable

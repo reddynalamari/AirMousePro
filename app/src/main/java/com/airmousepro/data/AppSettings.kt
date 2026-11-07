@@ -77,6 +77,26 @@ class AppSettings(context: Context) {
     // ---- Connection ----
     var autoReconnect by BoolPref("auto_reconnect", true)
     var lastHost by StringPref("last_host", "")
+    /** Devices that have connected before, newest first, as "address|epochMillis" pairs. */
+    var connectedHistory by StringPref("connected_history", "")
+
+    fun history(): List<Pair<String, Long>> = connectedHistory.split(',').filter { it.isNotBlank() }.mapNotNull {
+        val p = it.split('|')
+        if (p.size == 2) p[0] to (p[1].toLongOrNull() ?: 0L) else null
+    }
+
+    fun recordConnected(address: String) {
+        val rest = history().filterNot { it.first == address }
+        connectedHistory = (listOf(address to System.currentTimeMillis()) + rest).take(6).joinToString(",") { "${it.first}|${it.second}" }
+    }
+
+    fun forgetRecent(address: String) {
+        connectedHistory = history().filterNot { it.first == address }.joinToString(",") { "${it.first}|${it.second}" }
+    }
+
+    // Estimated levels on the computer; see HidController for how they are tracked.
+    var volumeEstimate by IntPref("vol_est", 50)
+    var brightnessEstimate by IntPref("bri_est", 60)
     /** 0 Windows, 1 macOS, 2 Linux, 3 Android TV. */
     var os by IntPref("os_profile", 0)
 
@@ -87,7 +107,9 @@ class AppSettings(context: Context) {
     var bubbleSide by IntPref("bubble_side", 1)          // 0 left, 1 right
     var bubbleY by FloatPref("bubble_y", 0.45f)          // fraction of screen height
     /** Dial contents in order, e.g. "b:touchpad,b:keys,s:abc123". */
-    var dialSlots by StringPref("dial_slots", "b:touchpad,b:keys,b:volume,b:playpause")
+    var dialSlots by StringPref("dial_slots", DEFAULT_DIAL)
+    /** Set once the dial has been upgraded to include brightness. */
+    var dialMigrated by BoolPref("dial_v2", false)
 
     // ---- Updates ----
     var updateAuto by BoolPref("update_auto", true)
@@ -99,6 +121,9 @@ class AppSettings(context: Context) {
     // ---- Data ----
     var shortcutsJson by StringPref("shortcuts_json", "")
 }
+
+const val OLD_DEFAULT_DIAL = "b:touchpad,b:keys,b:volume,b:playpause"
+const val DEFAULT_DIAL = "b:touchpad,b:keys,b:volume,b:brightness,b:playpause"
 
 val Accents = listOf(
     "Blue" to 0xFF0A84FF,

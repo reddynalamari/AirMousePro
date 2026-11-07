@@ -11,10 +11,14 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -37,8 +41,38 @@ class HidController(private val context: Context) {
 
     var hostName by mutableStateOf<String?>(null); private set
 
+    /** Address of the connected device, or null. Read it together with [hostName] so Compose sees changes. */
+    val hostAddress: String? get() = if (hostName != null) host?.address else null
+
     private var autoReconnectTried = false
     private var autoAttempt = false
+
+    /** Progress of the launch-time search for a recently used device. */
+    sealed interface AutoStatus {
+        data object Idle : AutoStatus
+        data class Trying(val name: String, val index: Int, val total: Int) : AutoStatus
+        data object Done : AutoStatus
+    }
+
+    var autoStatus: AutoStatus by mutableStateOf(AutoStatus.Idle); private set
+
+    private val main = Handler(Looper.getMainLooper())
+    private var autoQueue = ArrayDeque<BluetoothDevice>()
+    private var autoTotal = 0
+    private var autoCurrent: BluetoothDevice? = null
+    private var connectingTo: BluetoothDevice? = null
+    private val autoTimeout = Runnable { advanceAuto() }
+
+    // Estimated levels on the computer. HID can only press the volume and brightness keys, never read the result,
+    // so these count presses using the key step size of the target system.
+    var volume by mutableIntStateOf(50); private set
+    var brightness by mutableIntStateOf(60); private set
+    var muted by mutableStateOf(false); private set
+    private var volumeF = 50f
+    private var brightnessF = 60f
+
+    @Volatile var gamepadSent = 0
+    @Volatile var gamepadFailed = 0
 
     /** Name of a device that did not accept our last connection attempt, until dismissed or connected. */
     var connectFailure by mutableStateOf<String?>(null); private set
@@ -106,7 +140,7 @@ class HidController(private val context: Context) {
             note("app registered=$registered plugged=${pluggedDevice?.address}")
             if (registered) {
                 if (state != State.Connected) state = State.Ready
-                tryAutoReconnect()
+                startAutoConnect()
             } else {
                 state = State.Failed
             }
@@ -120,14 +154,27 @@ class HidController(private val context: Context) {
                     host = device
                     hostName = device.name ?: device.address
                     settings.lastHost = device.address
+                    settings.recordConnected(device.address)
+                    connectingTo = null
+                    // Found one: stop searching the rest of the recent list.
+                    main.removeCallbacks(autoTimeout)
+                    autoCurrent = null
+                    autoQueue.clear()
+                    autoStatus = AutoStatus.Done
                     state = State.Connected
                 }
                 BluetoothProfile.STATE_CONNECTING -> state = State.Connecting
                 else -> {
-                    // A silent auto-reconnect that finds the host switched off is not worth a warning card.
-                    if (state == State.Connecting && !autoAttempt) connectFailure = device.name ?: device.address
-                    if (device == host) { host = null; hostName = null }
-                    state = if (hid != null) State.Ready else State.Idle
+                    // The late "disconnected" for an attempt we already gave up on must not undo the next attempt.
+                    val stale = connectingTo != null && device != connectingTo && device != host
+                    if (!stale) {
+                        // A silent auto-reconnect that finds the host switched off is not worth a warning card.
+                        if (state == State.Connecting && !autoAttempt) connectFailure = device.name ?: device.address
+                        if (device == host) { host = null; hostName = null }
+                        connectingTo = null
+                        state = if (hid != null) State.Ready else State.Idle
+                        if (device == autoCurrent) main.post { advanceAuto() }
+                    }
                 }
             }
         }
@@ -161,15 +208,72 @@ class HidController(private val context: Context) {
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val settings get() = (context.applicationContext as com.airmousepro.AirMouseApp).settings
 
-    /** Reconnects to the last host once per start, so the phone is ready without opening the Devices tab. */
-    private fun tryAutoReconnect() {
-        if (autoReconnectTried || !settings.autoReconnect) return
+    init {
+        volumeF = settings.volumeEstimate.toFloat()
+        brightnessF = settings.brightnessEstimate.toFloat()
+        volume = volumeF.roundToInt()
+        brightness = brightnessF.roundToInt()
+    }
+
+    /**
+     * Once per start: tries the recently used devices, newest first, giving each a few seconds. A device that is
+     * switched off or out of range simply times out and the next one is tried.
+     */
+    private fun startAutoConnect() {
+        if (autoReconnectTried) return
         autoReconnectTried = true
-        val last = settings.lastHost
-        if (last.isEmpty()) return
-        val device = pairedDevices().firstOrNull { it.address == last } ?: return
-        note("auto-reconnect to ${device.name}")
-        connect(device, auto = true)
+        if (!settings.autoReconnect || state == State.Connected) {
+            autoStatus = AutoStatus.Done
+            return
+        }
+        val bonded = pairedDevices().associateBy { it.address }
+        var list = settings.history().mapNotNull { bonded[it.first] }.take(4)
+        // Installs from before the history existed only know the last device.
+        if (list.isEmpty()) list = listOfNotNull(bonded[settings.lastHost])
+        autoQueue = ArrayDeque(list)
+        autoTotal = list.size
+        if (list.isEmpty()) {
+            autoStatus = AutoStatus.Done
+            return
+        }
+        main.post { tryNextAuto() }
+    }
+
+    private fun tryNextAuto() {
+        main.removeCallbacks(autoTimeout)
+        if (state == State.Connected) {
+            autoStatus = AutoStatus.Done
+            return
+        }
+        val d = autoQueue.removeFirstOrNull()
+        if (d == null) {
+            autoCurrent = null
+            autoStatus = AutoStatus.Done
+            note("auto-connect finished without a connection")
+            return
+        }
+        autoCurrent = d
+        autoStatus = AutoStatus.Trying(d.name ?: d.address, autoTotal - autoQueue.size, autoTotal)
+        note("auto-connect trying ${d.name} (${autoTotal - autoQueue.size} of $autoTotal)")
+        connect(d, auto = true)
+        main.postDelayed(autoTimeout, AUTO_TIMEOUT_MS)
+    }
+
+    private fun advanceAuto() {
+        val d = autoCurrent ?: return
+        autoCurrent = null
+        main.removeCallbacks(autoTimeout)
+        if (state == State.Connecting) runCatching { hid?.disconnect(d) }
+        tryNextAuto()
+    }
+
+    fun cancelAutoConnect() {
+        main.removeCallbacks(autoTimeout)
+        autoQueue.clear()
+        val d = autoCurrent
+        autoCurrent = null
+        if (d != null && state == State.Connecting) runCatching { hid?.disconnect(d) }
+        autoStatus = AutoStatus.Done
     }
 
     var showAsAirMouse: Boolean
@@ -248,6 +352,9 @@ class HidController(private val context: Context) {
     fun connect(device: BluetoothDevice, auto: Boolean = false) {
         val h = hid ?: return
         autoAttempt = auto
+        // A manual tap takes over from any automatic search that is still running.
+        if (!auto) cancelAutoConnect()
+        connectingTo = device
         connectFailure = null
         state = State.Connecting
         val ok = h.connect(device)
@@ -261,7 +368,11 @@ class HidController(private val context: Context) {
 
     private fun send(id: Int, data: ByteArray) {
         val d = host ?: return
-        if (hid?.sendReport(d, id, data) == false && failedSends++ < 5) note("sendReport id=$id failed")
+        val ok = hid?.sendReport(d, id, data) ?: false
+        if (id == HidDescriptor.ID_GAMEPAD) {
+            if (ok) gamepadSent++ else gamepadFailed++
+        }
+        if (!ok && failedSends++ < 5) note("sendReport id=$id failed")
     }
 
     // ---- Mouse ----
@@ -325,10 +436,45 @@ class HidController(private val context: Context) {
 
     // ---- Consumer / media ----
 
+    /** Presses a media key and keeps the volume and brightness estimates in step. */
     fun consumer(usage: Int) {
+        track(usage)
+        consumerRaw(usage)
+    }
+
+    /** Presses a media key without touching the estimates (used while calibrating). */
+    fun consumerRaw(usage: Int) {
         send(HidDescriptor.ID_CONSUMER, byteArrayOf((usage and 0xFF).toByte(), (usage shr 8).toByte()))
         send(HidDescriptor.ID_CONSUMER, byteArrayOf(0, 0))
     }
+
+    /** Key step in percent for the system being controlled (Windows moves volume 2% and brightness 10% per press). */
+    fun volumeStep(): Float = when (settings.os) { 1 -> 6.25f; 2 -> 5f; 3 -> 100f / 15f; else -> 2f }
+    fun brightnessStep(): Float = when (settings.os) { 1 -> 6.25f; else -> 10f }
+
+    private fun track(usage: Int) {
+        when (usage) {
+            Consumer.VOL_UP -> { volumeF = (volumeF + volumeStep()).coerceAtMost(100f); muted = false; syncVolume() }
+            Consumer.VOL_DOWN -> { volumeF = (volumeF - volumeStep()).coerceAtLeast(0f); syncVolume() }
+            Consumer.MUTE -> muted = !muted
+            Consumer.BRIGHTNESS_UP -> { brightnessF = (brightnessF + brightnessStep()).coerceAtMost(100f); syncBrightness() }
+            Consumer.BRIGHTNESS_DOWN -> { brightnessF = (brightnessF - brightnessStep()).coerceAtLeast(0f); syncBrightness() }
+        }
+    }
+
+    private fun syncVolume() {
+        volume = volumeF.roundToInt()
+        settings.volumeEstimate = volume
+    }
+
+    private fun syncBrightness() {
+        brightness = brightnessF.roundToInt()
+        settings.brightnessEstimate = brightness
+    }
+
+    /** Corrects the readout without sending anything, for when it has drifted from the real level. */
+    fun setVolumeEstimate(percent: Int) { volumeF = percent.toFloat().coerceIn(0f, 100f); syncVolume() }
+    fun setBrightnessEstimate(percent: Int) { brightnessF = percent.toFloat().coerceIn(0f, 100f); syncBrightness() }
 
     // ---- Gamepad ----
 
@@ -344,6 +490,7 @@ class HidController(private val context: Context) {
     }
 
     companion object {
+        private const val AUTO_TIMEOUT_MS = 9_000L
         private const val NAME_PREFIX = "AirMouse - "
         private const val KEY_RENAME = "show_as_airmouse"
         private const val KEY_ORIGINAL = "original_bt_name"

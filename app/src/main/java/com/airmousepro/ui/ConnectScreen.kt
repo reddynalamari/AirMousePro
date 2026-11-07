@@ -6,7 +6,16 @@ import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.provider.Settings
+import android.text.format.DateUtils
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,15 +24,27 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.BluetoothConnected
+import androidx.compose.material.icons.rounded.BluetoothDisabled
+import androidx.compose.material.icons.rounded.BluetoothSearching
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Devices
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.Laptop
+import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -37,12 +58,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.airmousepro.appSettings
 import com.airmousepro.hid.HidController
+import com.airmousepro.hid.HidController.AutoStatus
 import com.airmousepro.hid.HidController.State
 
 val StatusGreen = Color(0xFF30D158)
@@ -55,7 +83,7 @@ data class StatusInfo(val title: String, val detail: String, val color: Color)
 fun statusInfo(hid: HidController): StatusInfo = when (hid.state) {
     State.Connected -> StatusInfo("Connected", "Controlling ${hid.hostName}", StatusGreen)
     State.Connecting -> StatusInfo("Connecting…", "Keep Bluetooth on for both devices.", StatusOrange)
-    State.Ready -> StatusInfo("Not connected", "Pick a paired device below, or pair a new one.", StatusOrange)
+    State.Ready -> StatusInfo("Not connected", "Pick a device below, or pair a new one.", StatusOrange)
     State.Registering -> StatusInfo("Starting…", "Setting up Bluetooth.", StatusGrey)
     State.Failed -> StatusInfo("Setup failed", "Tap Refresh to try again. Details are in Settings → Developer options.", StatusGrey)
     State.Unsupported -> StatusInfo("Not supported", "This phone cannot act as a Bluetooth keyboard or mouse.", StatusGrey)
@@ -76,112 +104,253 @@ private fun isLikelyHost(d: BluetoothDevice): Boolean {
 }
 
 @SuppressLint("MissingPermission")
+private fun deviceIcon(d: BluetoothDevice): ImageVector {
+    val c = d.bluetoothClass ?: return Icons.Rounded.Devices
+    return when (c.majorDeviceClass) {
+        BluetoothClass.Device.Major.COMPUTER -> Icons.Rounded.Laptop
+        BluetoothClass.Device.Major.PHONE -> Icons.Rounded.PhoneAndroid
+        BluetoothClass.Device.Major.AUDIO_VIDEO -> if (isLikelyHost(d)) Icons.Rounded.Tv else Icons.Rounded.Headphones
+        else -> Icons.Rounded.Devices
+    }
+}
+
+@SuppressLint("MissingPermission")
 @Composable
 fun ConnectScreen(hid: HidController, onRetry: () -> Unit) {
     val ctx = LocalContext.current
+    val settings = ctx.appSettings
     var refresh by remember { mutableIntStateOf(0) }
     var showAll by remember { mutableStateOf(false) }
-    val all = remember(refresh, hid.state) { hid.pairedDevices() }
-    val (likely, others) = remember(all) { all.partition(::isLikelyHost) }
-    val shown = if (showAll) all else likely
 
-    // Cap the width so cards do not stretch across a landscape screen.
+    val paired = remember(refresh, hid.state) { hid.pairedDevices() }
+    val byAddress = paired.associateBy { it.address }
+    // Devices that have connected before, newest first. Unpaired ones are dropped.
+    val recent = settings.history().mapNotNull { (a, t) -> byAddress[a]?.let { it to t } }
+    val recentAddresses = recent.map { it.first.address }.toSet()
+    val others = paired.filter { it.address !in recentAddresses }
+    val (likely, hidden) = others.partition(::isLikelyHost)
+    val shownOthers = if (showAll) others else likely
+    val ready = hid.state == State.Ready
+
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-    LazyColumn(
-        Modifier.widthIn(max = 640.dp).fillMaxHeight(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item { StatusCard(hid) }
+        LazyColumn(
+            Modifier.widthIn(max = 640.dp).fillMaxHeight(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { Hero(hid, recent.firstOrNull()?.first) }
 
-        hid.connectFailure?.let { name ->
-            item {
-                Card(tint = StatusOrange.copy(alpha = 0.16f)) {
-                    Text("$name did not accept the connection", fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "This usually means it was paired before AirMouse was open. Remove this phone from $name's Bluetooth list, " +
-                            "remove $name from this phone's list, then pair again while this app is open.",
-                        fontSize = 14.sp,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth settings") }
-                        TextButton(onClick = { hid.dismissFailure() }) { Text("Dismiss") }
+            hid.connectFailure?.let { name ->
+                item {
+                    Card(tint = StatusOrange.copy(alpha = 0.16f)) {
+                        Text("$name did not accept the connection", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "This usually means it was paired before AirMouse was open. Remove this phone from $name's Bluetooth list, " +
+                                "remove $name from this phone's list, then pair again while this app is open.",
+                            fontSize = 14.sp,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth settings") }
+                            TextButton(onClick = { hid.dismissFailure() }) { Text("Dismiss") }
+                        }
                     }
                 }
             }
-        }
 
-        item {
-            Card {
-                Text("Pair a new device", fontWeight = FontWeight.SemiBold)
-                Text("1. Keep this app open and tap Make discoverable.", fontSize = 14.sp)
-                Text("2. On the laptop or TV, open Bluetooth settings and add this phone.", fontSize = 14.sp)
-                Text("3. Accept the code on both, then tap the device below.", fontSize = 14.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = {
-                        ctx.startActivity(
-                            Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
-                                .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300),
-                        )
-                    }) { Text("Make discoverable") }
-                    OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth settings") }
+            if (recent.isNotEmpty()) {
+                item { SectionLabel("Recent") }
+                items(recent.size) { i ->
+                    val (d, time) = recent[i]
+                    val connected = hid.hostName != null && hid.hostAddress == d.address
+                    DeviceRow(
+                        icon = deviceIcon(d),
+                        name = d.name ?: "Unknown device",
+                        subtitle = if (connected) "Connected now" else "Last connected " + DateUtils.getRelativeTimeSpanString(time, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS),
+                        highlight = connected,
+                        enabled = ready,
+                        onClick = { hid.connect(d) },
+                        trailing = {
+                            IconButton(onClick = { settings.forgetRecent(d.address) }) {
+                                Icon(Icons.Rounded.Close, contentDescription = "Remove from recent", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f), modifier = Modifier.size(18.dp))
+                            }
+                        },
+                    )
                 }
             }
-        }
 
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Paired devices", fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                TextButton(onClick = {
-                    refresh++
-                    if (!hid.hasPermission()) onRetry() else if (hid.state != State.Connected) hid.restart()
-                }) { Text("Refresh") }
-            }
-        }
-
-        if (shown.isEmpty()) {
-            item { Text("No computers or TVs paired yet.", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)) }
-        }
-        items(shown) { d ->
-            val enabled = hid.state == State.Ready
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .clickable(enabled = enabled) { hid.connect(d) }
-                    .padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(d.name ?: "Unknown device", fontWeight = FontWeight.Medium)
-                    Text(d.address, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                }
-                if (enabled) Text("Connect", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
-            }
-        }
-
-        if (others.isNotEmpty()) {
             item {
-                TextButton(onClick = { showAll = !showAll }) {
-                    Text(if (showAll) "Hide other devices" else "Show ${others.size} other devices (headphones, car…)")
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionLabel(if (recent.isEmpty()) "Paired devices" else "Other paired devices") }
+                    TextButton(onClick = {
+                        refresh++
+                        if (!hid.hasPermission()) onRetry() else if (hid.state != State.Connected) hid.restart()
+                    }) { Text("Refresh") }
                 }
             }
+            if (shownOthers.isEmpty()) {
+                item {
+                    Text(
+                        if (recent.isEmpty()) "No computers or TVs paired yet." else "No other computers or TVs.",
+                        fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    )
+                }
+            }
+            items(shownOthers.size) { i ->
+                val d = shownOthers[i]
+                DeviceRow(
+                    icon = deviceIcon(d), name = d.name ?: "Unknown device", subtitle = d.address,
+                    highlight = false, enabled = ready, onClick = { hid.connect(d) },
+                    trailing = { if (ready) Text("Connect", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, modifier = Modifier.padding(end = 6.dp)) },
+                )
+            }
+            if (hidden.isNotEmpty()) {
+                item {
+                    TextButton(onClick = { showAll = !showAll }) {
+                        Text(if (showAll) "Hide headphones and car kits" else "Show ${hidden.size} more (headphones, car kits)")
+                    }
+                }
+            }
+
+            item { PairCard(hid) }
         }
-    }
     }
 }
 
 @Composable
-private fun StatusCard(hid: HidController) {
+private fun SectionLabel(text: String) {
+    Text(
+        text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp,
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f), modifier = Modifier.padding(start = 4.dp, top = 4.dp),
+    )
+}
+
+/** Large status ring that spins while a connection is being made, with the one action that makes sense right now. */
+@Composable
+private fun Hero(hid: HidController, mostRecent: BluetoothDevice?) {
     val info = statusInfo(hid)
-    Card {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(12.dp).clip(CircleShape).background(info.color))
-            Text(info.title, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+    val auto = hid.autoStatus
+    val searching = auto is AutoStatus.Trying || hid.state == State.Connecting
+    val connected = hid.state == State.Connected
+
+    val spin = rememberInfiniteTransition(label = "spin")
+    val angle by spin.animateFloat(0f, 360f, infiniteRepeatable(tween(1300, easing = LinearEasing), RepeatMode.Restart), label = "angle")
+    val color = if (searching) MaterialTheme.colorScheme.primary else info.color
+    val icon = when {
+        connected -> Icons.Rounded.BluetoothConnected
+        searching -> Icons.Rounded.BluetoothSearching
+        !hid.bluetoothEnabled() -> Icons.Rounded.BluetoothDisabled
+        else -> Icons.Rounded.Bluetooth
+    }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(28.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), RoundedCornerShape(28.dp))
+            .padding(vertical = 24.dp, horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(Modifier.size(124.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val stroke = 6.dp.toPx()
+                val inset = stroke / 2
+                val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                drawArc(color.copy(alpha = 0.18f), 0f, 360f, false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke))
+                if (searching) {
+                    drawArc(color, angle, 100f, false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke, cap = StrokeCap.Round))
+                } else {
+                    drawArc(color, 0f, 360f, false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke))
+                }
+            }
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(46.dp))
         }
-        Text(info.detail, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-        if (hid.state == State.Connected) OutlinedButton(onClick = { hid.disconnect() }) { Text("Disconnect") }
+
+        val title = when {
+            connected -> hid.hostName ?: "Connected"
+            auto is AutoStatus.Trying -> "Looking for ${auto.name}"
+            else -> info.title
+        }
+        val detail = when {
+            connected -> "Connected and ready"
+            auto is AutoStatus.Trying -> if (auto.total > 1) "Recent device ${auto.index} of ${auto.total}" else "Your most recent device"
+            else -> info.detail
+        }
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(detail, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f))
+
+        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            when {
+                connected -> OutlinedButton(onClick = { hid.disconnect() }) { Text("Disconnect") }
+                auto is AutoStatus.Trying -> OutlinedButton(onClick = { hid.cancelAutoConnect() }) { Text("Cancel") }
+                hid.state == State.Ready && mostRecent != null ->
+                    Button(onClick = { hid.connect(mostRecent) }) { Text("Connect to ${mostRecent.name ?: "last device"}") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeviceRow(
+    icon: ImageVector,
+    name: String,
+    subtitle: String,
+    highlight: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    trailing: @Composable () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surface)
+            .then(if (highlight) Modifier.border(1.5.dp, StatusGreen.copy(alpha = 0.7f), RoundedCornerShape(18.dp)) else Modifier)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(42.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, tint = if (highlight) StatusGreen else MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp)) }
+        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+            Text(name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, fontSize = 12.sp, color = if (highlight) StatusGreen else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+        }
+        trailing()
+    }
+}
+
+@Composable
+private fun PairCard(hid: HidController) {
+    val ctx = LocalContext.current
+    Card {
+        Text("Pair a new device", fontWeight = FontWeight.SemiBold)
+        Step(1, "Keep this app open and tap Make discoverable.")
+        Step(2, "On the computer or TV, open Bluetooth settings and add this phone.")
+        Step(3, "Accept the code on both. It then appears here to connect.")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
+            Button(onClick = {
+                ctx.startActivity(
+                    Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
+                        .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300),
+                )
+            }) { Text("Make discoverable") }
+            OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth settings") }
+        }
+    }
+}
+
+@Composable
+private fun Step(n: Int, text: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            Modifier.size(22.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center,
+        ) { Text("$n", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) }
+        Text(text, fontSize = 14.sp, modifier = Modifier.padding(start = 10.dp))
     }
 }
 
@@ -190,7 +359,7 @@ private fun Card(tint: Color? = null, content: @Composable androidx.compose.foun
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
             .background(tint ?: MaterialTheme.colorScheme.surface)
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
