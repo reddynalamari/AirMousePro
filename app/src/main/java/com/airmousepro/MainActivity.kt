@@ -66,7 +66,19 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import android.net.Uri
 import com.airmousepro.data.AppSettings
+import com.airmousepro.data.CHANGELOG_REV
+import com.airmousepro.data.ChangeEntry
+import com.airmousepro.data.unseenChanges
+import com.airmousepro.ui.guide.SetupGuide
+import com.airmousepro.ui.guide.WhatsNewGuide
 import com.airmousepro.hid.HidController
 import com.airmousepro.input.HardwareKeys
 import com.airmousepro.service.HidService
@@ -80,6 +92,12 @@ import com.airmousepro.ui.SettingsScreen
 import com.airmousepro.ui.UpdatePrompt
 import com.airmousepro.ui.isLandscape
 import com.airmousepro.ui.statusInfo
+
+/** Which full-screen guide, if any, is showing. */
+sealed interface GuideState {
+    data object Setup : GuideState
+    data class WhatsNew(val entries: List<ChangeEntry>) : GuideState
+}
 
 /** Lets the floating quick menu ask the open app to switch tab. */
 object NavRequests {
@@ -114,6 +132,20 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(i: Intent) {
         val t = i.getIntExtra(EXTRA_TAB, -1)
         if (t >= 0) NavRequests.tab = t
+    }
+
+    // Briefly delayed on the way out so moving between screens or system dialogs does not make the bubble flicker.
+    private val markBackground = Runnable { app.inForeground.value = false }
+
+    override fun onStart() {
+        super.onStart()
+        handler.removeCallbacks(markBackground)
+        app.inForeground.value = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        handler.postDelayed(markBackground, 350)
     }
 
     override fun onResume() {
@@ -195,10 +227,59 @@ private fun App(hid: HidController) {
         hid.start()
         if (hid.hasPermission()) ContextCompat.startForegroundService(ctx, Intent(ctx, HidService::class.java))
     }
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { startAll() }
-    LaunchedEffect(Unit) {
-        if (permissions.isEmpty()) startAll() else launcher.launch(permissions)
+    // The permission dialog is raised only by the setup guide, once. After that nothing prompts on its own.
+    var permTick by remember { mutableIntStateOf(0) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        settings.permAsked = true
+        permTick++
+        startAll()
     }
+    LaunchedEffect(Unit) {
+        // Normal start: if Bluetooth is already allowed, get going. If it is not, the Devices page says so.
+        if (settings.setupDone && (permissions.isEmpty() || hid.hasPermission())) startAll()
+    }
+    // Used by the Refresh button when Bluetooth is not allowed. Once asked, Android will not show the dialog again
+    // after a refusal, so send the user to the app's permission page instead of doing nothing.
+    val onRetry: () -> Unit = {
+        if (!hid.hasPermission()) {
+            if (!settings.permAsked) {
+                launcher.launch(permissions)
+            } else {
+                ctx.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        } else {
+            startAll()
+        }
+    }
+
+    // Guides: the setup walkthrough on a new install, or the what's-new tour after an update.
+    var guide by remember {
+        mutableStateOf<GuideState?>(
+            if (!settings.setupDone) {
+                GuideState.Setup
+            } else {
+                unseenChanges(settings.whatsNewSeen).takeIf { it.isNotEmpty() }?.let { GuideState.WhatsNew(it) }
+            },
+        )
+    }
+    // Kept after dismissal so the guide can fade out instead of vanishing.
+    var lastGuide by remember { mutableStateOf(guide) }
+    if (guide != null) lastGuide = guide
+    val finishGuide: () -> Unit = {
+        when (guide) {
+            GuideState.Setup -> {
+                settings.setupDone = true
+                settings.whatsNewSeen = CHANGELOG_REV
+            }
+            is GuideState.WhatsNew -> settings.whatsNewSeen = CHANGELOG_REV
+            null -> {}
+        }
+        guide = null
+    }
+    BackHandler(enabled = guide != null) { finishGuide() }
 
     // Tab requests from the floating menu.
     LaunchedEffect(NavRequests.tab) {
@@ -223,13 +304,18 @@ private fun App(hid: HidController) {
 
     BackHandler(enabled = showSettings) { showSettings = false }
 
-    // Looks for a newer release when the app opens and offers to install it.
-    UpdatePrompt()
+    // Looks for a newer release when the app opens and offers to install it. Waits until any guide is closed.
+    if (guide == null) UpdatePrompt()
 
     val screen: @Composable () -> Unit = {
         when {
-            showSettings -> SettingsScreen(hid, onBack = { showSettings = false })
-            tab == 0 -> ConnectScreen(hid, onRetry = { if (permissions.isEmpty()) startAll() else launcher.launch(permissions) })
+            showSettings -> SettingsScreen(
+                hid,
+                onBack = { showSettings = false },
+                onReplaySetup = { showSettings = false; guide = GuideState.Setup },
+                onReplayWhatsNew = { showSettings = false; guide = GuideState.WhatsNew(unseenChanges(0)) },
+            )
+            tab == 0 -> ConnectScreen(hid, onRetry = onRetry)
             tab == 1 -> MouseScreen(hid)
             tab == 2 -> KeyboardScreen(hid)
             tab == 3 -> DeckScreen(hid)
@@ -237,6 +323,7 @@ private fun App(hid: HidController) {
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     if (landscape) {
         Row(
             Modifier
@@ -292,6 +379,26 @@ private fun App(hid: HidController) {
                 }
             },
         ) { pad -> Box(Modifier.fillMaxSize().padding(pad)) { screen() } }
+    }
+
+    // The guide sits above everything, fading and scaling in and out.
+    AnimatedVisibility(
+        visible = guide != null,
+        enter = fadeIn(tween(280)) + scaleIn(tween(320), initialScale = 0.96f),
+        exit = fadeOut(tween(220)) + scaleOut(tween(220), targetScale = 1.03f),
+    ) {
+        when (val g = lastGuide) {
+            GuideState.Setup -> SetupGuide(
+                hid = hid,
+                permissionTick = permTick,
+                onRequestPermissions = { launcher.launch(permissions) },
+                onFinish = finishGuide,
+                onSkip = finishGuide,
+            )
+            is GuideState.WhatsNew -> WhatsNewGuide(g.entries, runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "", finishGuide)
+            null -> {}
+        }
+    }
     }
 }
 

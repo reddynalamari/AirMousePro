@@ -63,14 +63,6 @@ class HidController(private val context: Context) {
     private var connectingTo: BluetoothDevice? = null
     private val autoTimeout = Runnable { advanceAuto() }
 
-    // Estimated levels on the computer. HID can only press the volume and brightness keys, never read the result,
-    // so these count presses using the key step size of the target system.
-    var volume by mutableIntStateOf(50); private set
-    var brightness by mutableIntStateOf(60); private set
-    var muted by mutableStateOf(false); private set
-    private var volumeF = 50f
-    private var brightnessF = 60f
-
     @Volatile var gamepadSent = 0
     @Volatile var gamepadFailed = 0
 
@@ -207,13 +199,6 @@ class HidController(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
     private val settings get() = (context.applicationContext as com.airmousepro.AirMouseApp).settings
-
-    init {
-        volumeF = settings.volumeEstimate.toFloat()
-        brightnessF = settings.brightnessEstimate.toFloat()
-        volume = volumeF.roundToInt()
-        brightness = brightnessF.roundToInt()
-    }
 
     /**
      * Once per start: tries the recently used devices, newest first, giving each a few seconds. A device that is
@@ -436,45 +421,11 @@ class HidController(private val context: Context) {
 
     // ---- Consumer / media ----
 
-    /** Presses a media key and keeps the volume and brightness estimates in step. */
+    /** Presses and releases one media key (play, volume, brightness, home and so on). */
     fun consumer(usage: Int) {
-        track(usage)
-        consumerRaw(usage)
-    }
-
-    /** Presses a media key without touching the estimates (used while calibrating). */
-    fun consumerRaw(usage: Int) {
         send(HidDescriptor.ID_CONSUMER, byteArrayOf((usage and 0xFF).toByte(), (usage shr 8).toByte()))
         send(HidDescriptor.ID_CONSUMER, byteArrayOf(0, 0))
     }
-
-    /** Key step in percent for the system being controlled (Windows moves volume 2% and brightness 10% per press). */
-    fun volumeStep(): Float = when (settings.os) { 1 -> 6.25f; 2 -> 5f; 3 -> 100f / 15f; else -> 2f }
-    fun brightnessStep(): Float = when (settings.os) { 1 -> 6.25f; else -> 10f }
-
-    private fun track(usage: Int) {
-        when (usage) {
-            Consumer.VOL_UP -> { volumeF = (volumeF + volumeStep()).coerceAtMost(100f); muted = false; syncVolume() }
-            Consumer.VOL_DOWN -> { volumeF = (volumeF - volumeStep()).coerceAtLeast(0f); syncVolume() }
-            Consumer.MUTE -> muted = !muted
-            Consumer.BRIGHTNESS_UP -> { brightnessF = (brightnessF + brightnessStep()).coerceAtMost(100f); syncBrightness() }
-            Consumer.BRIGHTNESS_DOWN -> { brightnessF = (brightnessF - brightnessStep()).coerceAtLeast(0f); syncBrightness() }
-        }
-    }
-
-    private fun syncVolume() {
-        volume = volumeF.roundToInt()
-        settings.volumeEstimate = volume
-    }
-
-    private fun syncBrightness() {
-        brightness = brightnessF.roundToInt()
-        settings.brightnessEstimate = brightness
-    }
-
-    /** Corrects the readout without sending anything, for when it has drifted from the real level. */
-    fun setVolumeEstimate(percent: Int) { volumeF = percent.toFloat().coerceIn(0f, 100f); syncVolume() }
-    fun setBrightnessEstimate(percent: Int) { brightnessF = percent.toFloat().coerceIn(0f, 100f); syncBrightness() }
 
     // ---- Gamepad ----
 

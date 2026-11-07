@@ -104,18 +104,10 @@ private fun MediaPad(hid: HidController) {
         Pad(Icons.Rounded.VolumeOff, "Mute") { hid.consumer(Consumer.MUTE) }
         Pad(Icons.Rounded.VolumeUp, "Volume up") { hid.consumer(Consumer.VOL_UP) }
     }
-    Text(
-        if (hid.muted) "Volume muted" else "Volume about ${hid.volume}%",
-        fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
-    )
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Pad(Icons.Rounded.BrightnessLow, "Brightness down") { hid.consumer(Consumer.BRIGHTNESS_DOWN) }
         Pad(Icons.Rounded.BrightnessHigh, "Brightness up") { hid.consumer(Consumer.BRIGHTNESS_UP) }
     }
-    Text(
-        "Brightness about ${hid.brightness}%",
-        fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
-    )
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Pad(Icons.Rounded.NavigateBefore, "Previous slide") { hid.keyCombo(0, Key.PAGE_UP) }
         Pad(Icons.Rounded.NavigateNext, "Next slide") { hid.keyCombo(0, Key.PAGE_DOWN) }

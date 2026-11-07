@@ -93,10 +93,6 @@ class AppSettings(context: Context) {
     fun forgetRecent(address: String) {
         connectedHistory = history().filterNot { it.first == address }.joinToString(",") { "${it.first}|${it.second}" }
     }
-
-    // Estimated levels on the computer; see HidController for how they are tracked.
-    var volumeEstimate by IntPref("vol_est", 50)
-    var brightnessEstimate by IntPref("bri_est", 60)
     /** 0 Windows, 1 macOS, 2 Linux, 3 Android TV. */
     var os by IntPref("os_profile", 0)
 
@@ -110,6 +106,14 @@ class AppSettings(context: Context) {
     var dialSlots by StringPref("dial_slots", DEFAULT_DIAL)
     /** Set once the dial has been upgraded to include brightness. */
     var dialMigrated by BoolPref("dial_v2", false)
+
+    // ---- First run and guides ----
+    /** True once the setup guide has been finished or skipped. Existing installs are marked done at startup. */
+    var setupDone by BoolPref("setup_done", false)
+    /** Highest changelog revision the user has seen; see [CHANGELOG_REV]. */
+    var whatsNewSeen by IntPref("whats_new_seen", 0)
+    /** True once the Bluetooth permission dialog has been shown, so it is never raised again on its own. */
+    var permAsked by BoolPref("perm_asked", false)
 
     // ---- Updates ----
     var updateAuto by BoolPref("update_auto", true)

@@ -76,7 +76,7 @@ private const val KEY_DEV = "developer_options"
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(hid: HidController, onBack: () -> Unit) {
+fun SettingsScreen(hid: HidController, onBack: () -> Unit, onReplaySetup: () -> Unit, onReplayWhatsNew: () -> Unit) {
     val ctx = LocalContext.current
     val s = ctx.appSettings
     var dev by remember { mutableStateOf(s.prefs.getBoolean(KEY_DEV, false)) }
@@ -170,6 +170,11 @@ fun SettingsScreen(hid: HidController, onBack: () -> Unit) {
                 }
             }
 
+            SettingsCard("Guides") {
+                NavRow("Setup guide", "Replay the first-run walkthrough.", onReplaySetup)
+                NavRow("What's new", "See the latest changes again.", onReplayWhatsNew)
+            }
+
             UpdatesCard(onHistory = { page = "versions" })
 
             BackupCard()
@@ -185,6 +190,17 @@ fun SettingsScreen(hid: HidController, onBack: () -> Unit) {
             if (dev) DeveloperSection(hid)
             Box(Modifier.size(16.dp))
         }
+    }
+}
+
+@Composable
+private fun NavRow(title: String, detail: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text(detail, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        }
+        Icon(Icons.Rounded.ChevronRight, contentDescription = null)
     }
 }
 
@@ -331,30 +347,6 @@ private fun QuickMenuSettings(onBack: () -> Unit) {
                 SliderRow("Opacity", s.bubbleOpacity, 0.3f..1f) { s.bubbleOpacity = it }
             }
 
-            SettingsCard("Volume and brightness readout") {
-                val hid = ctx.app.hid
-                Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "A computer never tells the phone its level, so the percentage on the dial counts key presses. " +
-                            "It drifts if you change the level on the computer itself.",
-                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
-                    )
-                    Text("Calibrate: lowers it to the minimum, then raises it to 50%. You will see and hear it happen.", fontSize = 13.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            if (hid.state == HidController.State.Connected) ctx.app.macros.calibrate(volume = true, target = 50)
-                            else Toast.makeText(ctx, "Connect to a device first", Toast.LENGTH_SHORT).show()
-                        }) { Text("Volume to 50%") }
-                        OutlinedButton(onClick = {
-                            if (hid.state == HidController.State.Connected) ctx.app.macros.calibrate(volume = false, target = 50)
-                            else Toast.makeText(ctx, "Connect to a device first", Toast.LENGTH_SHORT).show()
-                        }) { Text("Brightness to 50%") }
-                    }
-                }
-                SliderRow("Volume reading", hid.volume.toFloat(), 0f..100f) { hid.setVolumeEstimate(it.toInt()) }
-                SliderRow("Brightness reading", hid.brightness.toFloat(), 0f..100f) { hid.setBrightnessEstimate(it.toInt()) }
-            }
-
             SettingsCard("On the dial (${slots.size} of $MAX_ITEMS)") {
                 if (slots.isEmpty()) Text("Nothing yet. Add items below.", fontSize = 13.sp, modifier = Modifier.padding(vertical = 10.dp))
                 slots.forEachIndexed { i, slot ->
@@ -406,7 +398,7 @@ private fun QuickMenuSettings(onBack: () -> Unit) {
 }
 
 /** MIUI/HyperOS keeps the extra overlay permission on its own screen; fall back to the normal app info page. */
-private fun openXiaomiPermissions(ctx: Context) {
+fun openXiaomiPermissions(ctx: Context) {
     val miui = Intent("miui.intent.action.APP_PERM_EDITOR")
         .setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
         .putExtra("extra_pkgname", ctx.packageName)

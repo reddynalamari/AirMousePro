@@ -34,7 +34,8 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 | **Present** | A slide clicker with a timer, black and white screen, and a laser that follows the phone. |
 | **Gamepad** | A generic Bluetooth gamepad with two sticks, D-pad, buttons, triggers and optional gyro aiming. |
 | **Remote** | D-pad, media keys, volume and brightness. |
-| **Quick menu** | A floating bubble over any app. Tap it for a rotary dial with your favourite actions, including volume and brightness knobs. Double-tap to open the app, drag it to the X to remove it. |
+| **Quick menu** | A floating bubble that appears over your other apps while this app is in the background. Tap it for a rotary dial with your favourite actions, including volume and brightness knobs. Double-tap to open the app, drag it to the X to remove it. |
+| **Guides** | A short animated setup guide on first launch, and after every update a tour that covers only what was added, improved or removed. Both can be replayed from Settings. |
 | **Make it yours** | Dark, AMOLED, light or system theme, five accent colours, adjustable haptics, rotation that follows your phone's auto-rotate switch, and landscape layouts. |
 | **Updates and backup** | Finds new versions, shows older ones, and backs up your settings and shortcuts to a file. |
 
@@ -47,12 +48,12 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 | **Keys** | On-screen keyboard, text mode, voice typing, shortcut and function keys. |
 | **Deck** | Switch between **Shortcuts**, **Present** and **Gamepad**. |
 | **Remote** | D-pad, media, volume and brightness. |
-| **Settings** | The gear icon at the top. Appearance, touchpad, air mouse, keyboard, connection, quick menu, updates, backup and about. |
+| **Settings** | The gear icon at the top. Appearance, touchpad, air mouse, keyboard, connection, quick menu, guides, updates, backup and about. |
 
 ## Quick start
 
 1. Download the APK from the [latest release](https://github.com/reddynalamari/AirMousePro/releases/latest) and open it. Android asks you to allow installing from your browser or file manager the first time.
-2. Open the app and allow the **Nearby devices** permission, and notifications if asked.
+2. Open the app and follow the short setup guide. It asks for the permissions it needs, once, and you can skip any step.
 3. Tap **Make discoverable** on the Devices page.
 4. On the computer or TV, open Bluetooth settings and add the phone. Accept the pairing code on both.
 5. Tap the device in the app. From then on the app connects by itself when it opens.
@@ -62,7 +63,6 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 ## Known limits
 
 - **No screen sharing.** Bluetooth input carries controls only, so the phone cannot show the computer's screen.
-- **Volume and brightness levels are estimates.** A computer never reports its level back, so the app counts button presses. The number can drift if you change the level on the computer.
 - **The gamepad is a generic one.** Games that only support Xbox controllers need a wrapper such as Steam Input.
 - **Re-pair after some updates.** Windows remembers what a Bluetooth device can do. When a release changes that, its notes say so: remove the phone in Windows and pair again.
 - **Some symbols may differ on non-US keyboard layouts.** Letters and digits are reliable.
@@ -94,8 +94,11 @@ AirMouse Pro can type and click on the computer it is connected to, so it is bui
 - While connected, the phone can send any keystroke to that computer, which is what a keyboard does. Keep your phone locked when you are away, and remove devices you no longer use from the phone's Bluetooth list.
 - There is no app lock yet.
 
+**Permissions**
+- The app asks for permissions once, in the setup guide. It never asks again on its own. If you decline one, that feature stays off until you allow it yourself, in Settings or in the phone's app settings.
+
 **Floating menu**
-- It uses Android's "display over other apps" permission only to draw the bubble and dial. The app does not use accessibility services and cannot read what other apps show.
+- It uses Android's "display over other apps" permission only to draw the bubble and dial, and only while this app is in the background. The app does not use accessibility services and cannot read what other apps show.
 
 **Check a download**
 

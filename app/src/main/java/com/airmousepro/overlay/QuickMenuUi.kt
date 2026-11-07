@@ -169,7 +169,7 @@ private const val KNOB_BRIGHTNESS = "brightness"
 /**
  * A radio-style dial on the screen edge. Drag around the ring to turn it; each detent ticks, the item under the
  * pointer is enlarged, and the centre knob (or a second tap on the item) runs it. "Volume" and "Brightness" turn the
- * whole dial into a knob with a level readout. The X at the bottom hides the floating menu.
+ * whole dial into a knob: each notch sends one key press. The X at the bottom hides the floating menu.
  */
 @Composable
 fun DialUi(
@@ -178,9 +178,6 @@ fun DialUi(
     cyFraction: Float,
     screenW: Int,
     screenH: Int,
-    volume: Int,
-    brightness: Int,
-    muted: Boolean,
     onExecute: (DialItem) -> Unit,
     onKnob: (kind: String, up: Boolean) -> Unit,
     onRemove: () -> Unit,
@@ -200,7 +197,6 @@ fun DialUi(
     var knob by remember { mutableStateOf<String?>(null) }
     val idx = if (knob != null) 0 else (-rot / STEP).roundToInt().coerceIn(0, n - 1)
     val selected = items.getOrNull(idx)
-    val level = when (knob) { KNOB_VOLUME -> volume; KNOB_BRIGHTNESS -> brightness; else -> -1 }
 
     val radius = min(172f * density, screenH / 2f - 12f * density).coerceAtLeast(96f * density)
     val itemRadius = radius * 0.72f
@@ -342,21 +338,6 @@ fun DialUi(
                     strokeWidth = if (major) 2.dp.toPx() else 1.dp.toPx(),
                 )
             }
-            // Level gauge along the visible half of the ring, filling from the bottom to the top.
-            if (level >= 0) {
-                val r = radius - 28.dp.toPx()
-                val tl = Offset(cx - r, cy - r)
-                val sz = Size(r * 2, r * 2)
-                val stroke = Stroke(7.dp.toPx(), cap = StrokeCap.Round)
-                val sweep = 180f * level / 100f
-                if (side == 0) {
-                    drawArc(Color.White.copy(alpha = 0.12f), -90f, 180f, false, tl, sz, style = stroke)
-                    if (sweep > 0f) drawArc(accent, 90f, -sweep, false, tl, sz, style = stroke)
-                } else {
-                    drawArc(Color.White.copy(alpha = 0.12f), 90f, 180f, false, tl, sz, style = stroke)
-                    if (sweep > 0f) drawArc(accent, 90f, sweep, false, tl, sz, style = stroke)
-                }
-            }
             // Pointer notch.
             val pa = Math.toRadians(pointer.toDouble())
             val tip = radius - 22.dp.toPx()
@@ -410,12 +391,8 @@ fun DialUi(
         ) {
             if (knob != null) {
                 Column(horizontalAlignment = if (side == 0) Alignment.Start else Alignment.End) {
-                    Text(if (knob == KNOB_VOLUME) "Volume" else "Brightness", color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        if (knob == KNOB_VOLUME && muted) "Muted" else "$level%",
-                        color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold,
-                    )
-                    Text("estimate", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                    Text(if (knob == KNOB_VOLUME) "Volume" else "Brightness", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                    Text("Drag up or down", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
                 }
             } else {
                 Text(selected?.label.orEmpty(), color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)

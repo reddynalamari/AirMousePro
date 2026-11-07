@@ -85,7 +85,7 @@ class QuickMenu(private val app: AirMouseApp) {
             settings.dialMigrated = true
         }
         job = app.appScope.launch {
-            combine(hid.stateFlow, settings.version) { s, _ -> s }.collect { refresh() }
+            combine(hid.stateFlow, settings.version, app.inForeground) { s, _, _ -> s }.collect { refresh() }
         }
     }
 
@@ -98,7 +98,8 @@ class QuickMenu(private val app: AirMouseApp) {
     fun canDraw() = Settings.canDrawOverlays(ctx)
 
     fun refresh() {
-        val want = settings.quickMenu && canDraw() && hid.state == HidController.State.Connected
+        // Only while the app itself is in the background: inside the app it would just be in the way.
+        val want = settings.quickMenu && canDraw() && hid.state == HidController.State.Connected && !app.inForeground.value
         if (want) show() else hide()
         if (want) applyBubbleSize()
     }
@@ -388,9 +389,6 @@ class QuickMenu(private val app: AirMouseApp) {
                 cyFraction = settings.bubbleY,
                 screenW = screenW,
                 screenH = screenH,
-                volume = hid.volume,
-                brightness = hid.brightness,
-                muted = hid.muted,
                 onExecute = ::execute,
                 onKnob = { kind, up ->
                     val usage = when {

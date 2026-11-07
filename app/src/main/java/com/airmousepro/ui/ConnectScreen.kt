@@ -183,7 +183,13 @@ fun ConnectScreen(hid: HidController, onRetry: () -> Unit) {
                     Box(Modifier.weight(1f)) { SectionLabel(if (recent.isEmpty()) "Paired devices" else "Other paired devices") }
                     TextButton(onClick = {
                         refresh++
-                        if (!hid.hasPermission()) onRetry() else if (hid.state != State.Connected) hid.restart()
+                        if (!hid.hasPermission()) {
+                            onRetry()
+                        } else if (hid.state != State.Connected) {
+                            hid.restart()
+                            // Also makes sure the background service is running now that Bluetooth is allowed.
+                            onRetry()
+                        }
                     }) { Text("Refresh") }
                 }
             }

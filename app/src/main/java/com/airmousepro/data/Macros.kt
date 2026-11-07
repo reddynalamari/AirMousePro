@@ -177,24 +177,6 @@ class ShortcutStore(private val settings: AppSettings) {
 class MacroRunner(private val hid: HidController, private val scope: CoroutineScope) {
     private var job: Job? = null
 
-    /**
-     * Drives the computer's volume or brightness all the way down, then up to [target] percent, so the phone's
-     * readout starts from a known level. Takes a few seconds and is audible or visible on the computer.
-     */
-    fun calibrate(volume: Boolean, target: Int) {
-        job?.cancel()
-        job = scope.launch(Dispatchers.Default) {
-            val step = if (volume) hid.volumeStep() else hid.brightnessStep()
-            val down = if (volume) Consumer.VOL_DOWN else Consumer.BRIGHTNESS_DOWN
-            val up = if (volume) Consumer.VOL_UP else Consumer.BRIGHTNESS_UP
-            repeat(kotlin.math.ceil(100f / step).toInt() + 3) { hid.consumerRaw(down); delay(30) }
-            val presses = (target / step).roundToInt()
-            repeat(presses) { hid.consumerRaw(up); delay(30) }
-            val level = (presses * step).roundToInt().coerceIn(0, 100)
-            if (volume) hid.setVolumeEstimate(level) else hid.setBrightnessEstimate(level)
-        }
-    }
-
     /** Types plain text on the host, one key at a time, using the selected keyboard layout. */
     fun typeText(text: String) {
         job?.cancel()

@@ -34,6 +34,7 @@ Under `app/src/main/java/com/airmousepro/`:
 | `input/` | Air-mouse engine and trackpad gesture engine |
 | `data/` | Settings, shortcuts and macros, backup |
 | `ui/` | Jetpack Compose screens and theme |
+| `ui/guide/` | The setup guide, the what's-new tour and their animated pages |
 | `overlay/` | Floating bubble, dial and mini touchpad |
 | `service/` | Foreground service and Quick Settings tile |
 | `update/` | Update checker, installer and result receiver |
@@ -44,6 +45,7 @@ Under `app/src/main/java/com/airmousepro/`:
 - Make sure `gradle :app:assembleDebug` passes. CI runs it on every pull request.
 - Do not commit keys, passwords, tokens, `.env` files, APKs or logs that show personal device names. Report anything you find that looks like a leaked secret privately, as a security problem.
 - Update the README if you change something users will notice.
+- **Release notes inside the app.** Users see a "What's new" tour after an update. For a user-visible change, add an entry to `data/Changelog.kt` with `rev = CHANGELOG_REV + 1`, then raise `CHANGELOG_REV` to match. Mark it New, Improved or Removed and keep the text short and in plain language. New installs see the setup guide instead, so they never see old entries.
 
 Releases are published automatically from the main branch by the maintainers.
 
