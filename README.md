@@ -32,7 +32,7 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 | **Keyboard** | On-screen keyboard with sticky Ctrl, Alt, Win and Shift. Layouts for US, UK, German, French and Spanish. Voice typing, typing your clipboard, and sharing text from any app to type it on the computer. |
 | **Deck** | Your own shortcuts and macros, with ready-made ones for copy, paste, lock, screenshot and more. Can open a website or an app on the computer. |
 | **Present** | A slide clicker with a timer, black and white screen, and a laser that follows the phone. |
-| **Gamepad** | A generic Bluetooth gamepad with two sticks, D-pad, buttons, triggers and optional gyro aiming. |
+| **Gamepad** | A Bluetooth gamepad with two sticks, D-pad, buttons, triggers and optional gyro aiming. A **Keys** switch turns the same controls into keyboard and mouse input (WASD, mouse look, trigger clicks) for games that ignore generic gamepads. |
 | **Remote** | D-pad, media keys, volume and brightness. |
 | **Quick menu** | A floating bubble that appears over your other apps while this app is in the background. Tap it for a rotary dial with your favourite actions, including volume and brightness knobs. Double-tap to open the app, drag it to the X to remove it. |
 | **Guides** | A short animated setup guide on first launch, and after every update a tour that covers only what was added, improved or removed. Both can be replayed from Settings. |
@@ -63,7 +63,8 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 ## Known limits
 
 - **No screen sharing.** Bluetooth input carries controls only, so the phone cannot show the computer's screen.
-- **The gamepad is a generic one.** Games that only support Xbox controllers need a wrapper such as Steam Input.
+- **The gamepad is a generic one.** Games that only support Xbox controllers will not see it. Use the **Keys** switch on the gamepad page, or a wrapper such as Steam Input.
+- **Rotation follows your phone.** With auto-rotate off, the app stays in portrait. The gamepad needs landscape, so turn the phone sideways or tap **Rotate to landscape** on that page.
 - **Re-pair after some updates.** Windows remembers what a Bluetooth device can do. When a release changes that, its notes say so: remove the phone in Windows and pair again.
 - **Some symbols may differ on non-US keyboard layouts.** Letters and digits are reliable.
 - **Opening apps on Android TV is best effort.** Bluetooth cannot launch an app directly, so it searches for the name and opens the result.
@@ -148,7 +149,8 @@ The app checks for a new version when it opens, at most once every six hours, an
 | The computer pairs but never connects | Remove the phone from the computer, forget the computer on the phone, then pair again while the app is open. |
 | "Setup failed" on the Devices page | Tap **Refresh**. If it repeats, open **Settings > Developer options** and use **Re-register HID**. |
 | Keys type the wrong characters | Set the computer's keyboard layout in **Settings > Keyboard**. |
-| The gamepad is not detected | On Windows press Win+R, run `joy.cpl`, and tap **Test** in the app. If the pad responds there, the game needs an Xbox-style controller. |
+| The game does not react to the gamepad | Turn on **Keys** on the gamepad page: it sends WASD, mouse and click input that nearly every game accepts. |
+| The gamepad is not detected at all | On Windows press Win+R, run `joy.cpl`, and tap **Test** in the app. If the pad responds there, the game needs an Xbox-style controller. |
 | An update will not install | The installed copy was signed with a different key. Back up in **Settings > Backup**, uninstall once, install the release APK, then restore. |
 | Something else | Copy the log from **Settings > Developer options** and attach it to an issue. Remove any device names or Bluetooth addresses you want to keep private first. |
 

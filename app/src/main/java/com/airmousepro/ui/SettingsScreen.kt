@@ -116,7 +116,7 @@ fun SettingsScreen(hid: HidController, onBack: () -> Unit, onReplaySetup: () -> 
                     }
                 }
                 ChoiceRow("Haptics", listOf("Off", "Soft", "Crisp"), s.haptics) { s.haptics = it }
-                ChoiceRow("Rotation", listOf("System", "Auto", "Portrait", "Landscape"), s.orientation, detail = "System follows your phone's auto-rotate switch.") { s.orientation = it }
+                ChoiceRow("Rotation", listOf("System", "Auto", "Portrait", "Landscape"), s.orientation, detail = "System follows your phone's auto-rotate switch. With the switch off, the app stays in portrait.") { s.orientation = it }
                 SettingRow("Keep screen on", "While the Mouse tab is open.", s.keepAwake) { s.keepAwake = it }
             }
 

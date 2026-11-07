@@ -55,6 +55,8 @@ import androidx.compose.ui.unit.sp
 import com.airmousepro.appSettings
 import com.airmousepro.applyOrientation
 import com.airmousepro.hid.HidController
+import com.airmousepro.hid.Key
+import com.airmousepro.hid.Mod
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.hypot
@@ -89,9 +91,59 @@ private class PadState(private val hid: HidController) {
         else -> 0
     }
 
+    /**
+     * Keys mode: instead of a gamepad report, the same controls press keyboard keys and mouse buttons. Almost every
+     * PC game understands those, while many ignore a generic Bluetooth gamepad.
+     */
+    var keysMode = false
+
+    private var lastKeys = ""
+    private var firing = false
+    private var aiming = false
+
+    private fun held(bit: Int) = buttons and (1 shl bit) != 0
+
     @Synchronized
     fun push() {
-        hid.gamepad(buttons, hat(), lx, ly, (rx + gx).coerceIn(-127, 127), (ry + gy).coerceIn(-127, 127), lt, rt)
+        if (keysMode) pushKeys()
+        else hid.gamepad(buttons, hat(), lx, ly, (rx + gx).coerceIn(-127, 127), (ry + gy).coerceIn(-127, 127), lt, rt)
+    }
+
+    /** Right stick plus gyro, -127..127, used by the mouse in keys mode. */
+    fun lookX() = (rx + gx).coerceIn(-127, 127)
+    fun lookY() = (ry + gy).coerceIn(-127, 127)
+
+    private fun pushKeys() {
+        val keys = ArrayList<Int>(6)
+        // Left stick as WASD, with a dead zone so a resting thumb sends nothing.
+        if (ly < -KEY_ZONE) keys += KEY_W
+        if (ly > KEY_ZONE) keys += KEY_S
+        if (lx < -KEY_ZONE) keys += KEY_A
+        if (lx > KEY_ZONE) keys += KEY_D
+        if (up) keys += Key.UP
+        if (down) keys += Key.DOWN
+        if (left) keys += Key.LEFT
+        if (right) keys += Key.RIGHT
+        if (held(B_A)) keys += Key.SPACE
+        if (held(B_B)) keys += KEY_C
+        if (held(B_X)) keys += KEY_E
+        if (held(B_Y)) keys += KEY_R
+        if (held(B_LB)) keys += KEY_Q
+        if (held(B_RB)) keys += KEY_F
+        if (held(B_BACK)) keys += Key.TAB
+        if (held(B_START)) keys += Key.ESC
+        val mods = (if (held(B_L3)) Mod.SHIFT else 0) or (if (held(B_R3)) Mod.CTRL else 0)
+        val list = keys.distinct().take(6)
+        val signature = "$mods:${list.joinToString(",")}"
+        if (signature != lastKeys) {
+            lastKeys = signature
+            if (list.isEmpty() && mods == 0) hid.keyUp() else hid.keyDown(mods, *list.toIntArray())
+        }
+        // Right trigger fires (left click), left trigger aims (right click).
+        val fire = rt > 0
+        val aim = lt > 0
+        if (fire != firing) { firing = fire; hid.setButton(HidController.BUTTON_LEFT, fire) }
+        if (aim != aiming) { aiming = aim; hid.setButton(HidController.BUTTON_RIGHT, aim) }
     }
 
     fun button(bit: Int, down: Boolean) {
@@ -104,7 +156,26 @@ private class PadState(private val hid: HidController) {
         lx = 0; ly = 0; rx = 0; ry = 0; lt = 0; rt = 0; gx = 0; gy = 0
         push()
     }
+
+    /** Releases everything in the old mode before switching, so no key or button is left stuck down. */
+    fun switchMode(keys: Boolean) {
+        reset()
+        keysMode = keys
+        push()
+    }
 }
+
+private const val KEY_ZONE = 45
+private const val KEY_W = 0x1A
+private const val KEY_A = 0x04
+private const val KEY_S = 0x16
+private const val KEY_D = 0x07
+private const val KEY_C = 0x06
+private const val KEY_E = 0x08
+private const val KEY_R = 0x15
+private const val KEY_Q = 0x14
+private const val KEY_F = 0x09
+private const val MOUSE_PIXELS_PER_TICK = 16f
 
 // Button numbers match the common DirectInput order, so most games map them without setup.
 private const val B_A = 0
@@ -147,12 +218,38 @@ fun GamepadScreen(hid: HidController) {
         }
     }
 
-    // Landscape while this page is visible, then back to the user's own rotation policy.
+    var keysMode by remember { mutableStateOf(settings.gamepadKeys) }
+    LaunchedEffect(Unit) { pad.switchMode(settings.gamepadKeys) }
+
+    // The page never rotates the screen by itself. Leaving it puts the user's own rotation policy back, which
+    // matters when the "Rotate to landscape" button below was used.
     DisposableEffect(Unit) {
-        (ctx as? ComponentActivity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         onDispose {
             pad.reset()
             (ctx as? ComponentActivity)?.let { applyOrientation(it, settings) }
+        }
+    }
+
+    // In keys mode the right stick (and gyro) moves the mouse. The mouse needs a steady stream even while the stick
+    // is held still, so this ticks about 125 times a second.
+    LaunchedEffect(keysMode) {
+        if (!keysMode) return@LaunchedEffect
+        var remX = 0f
+        var remY = 0f
+        while (true) {
+            val sx = pad.lookX() / 127f
+            val sy = pad.lookY() / 127f
+            // Squared response: fine control near the centre, fast at the edge.
+            remX += sx * kotlin.math.abs(sx) * MOUSE_PIXELS_PER_TICK
+            remY += sy * kotlin.math.abs(sy) * MOUSE_PIXELS_PER_TICK
+            val ix = remX.toInt()
+            val iy = remY.toInt()
+            if (ix != 0 || iy != 0) {
+                hid.moveMouse(ix, iy)
+                remX -= ix
+                remY -= iy
+            }
+            delay(8)
         }
     }
 
@@ -205,10 +302,19 @@ fun GamepadScreen(hid: HidController) {
     }
 
     if (!isLandscape()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Rounded.ScreenRotation, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("Turning to landscape…", modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        // Rotation is the user's call: this only happens when they tap the button.
+        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Rounded.ScreenRotation, contentDescription = null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.primary)
+                Text("The gamepad needs landscape", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Turn your phone sideways if auto-rotate is on, or tap below to rotate just for the gamepad.",
+                    fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+                androidx.compose.material3.Button(onClick = {
+                    (ctx as? ComponentActivity)?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                }) { Text("Rotate to landscape") }
             }
         }
         return
@@ -250,8 +356,20 @@ fun GamepadScreen(hid: HidController) {
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(50))
+                        .background(if (keysMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
+                        .clickable {
+                            keysMode = !keysMode
+                            settings.gamepadKeys = keysMode
+                            pad.switchMode(keysMode)
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) { Text("Keys", fontSize = 13.sp, color = if (keysMode) Color.White else MaterialTheme.colorScheme.onSurface) }
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(50))
                         .background(if (testing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable(enabled = !testing && hid.state == HidController.State.Connected) {
+                        // The self-test would type into whatever is focused on the computer, so it is gamepad-only.
+                        .clickable(enabled = !testing && !keysMode && hid.state == HidController.State.Connected) {
                             scope.launch {
                                 testing = true
                                 runSelfTest(pad)
@@ -264,10 +382,11 @@ fun GamepadScreen(hid: HidController) {
             // Live proof that reports are leaving the phone, to tell a link problem from a game that ignores the pad.
             val line = when {
                 hid.state != HidController.State.Connected -> "Not connected. Connect on the Devices tab."
+                keysMode -> "Keys mode: left stick WASD, right stick mouse, RT click, LT aim, A space, B C, X E, Y R"
                 failed > 0 -> "Sending, but $failed reports failed ($sent ok)"
                 else -> "Connected to ${hid.hostName} · $sent reports sent"
             }
-            Text(line, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f), maxLines = 2)
+            Text(line, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f), maxLines = 3)
         }
 
         // Right side: bumpers, face buttons, right stick.

@@ -66,6 +66,10 @@ class AppSettings(context: Context) {
     var inertia by BoolPref("inertia", true)
     var leftHanded by BoolPref("left_handed", false)
 
+    // ---- Gamepad ----
+    /** Send keyboard and mouse input instead of a gamepad report, for games that ignore generic gamepads. */
+    var gamepadKeys by BoolPref("gamepad_keys", false)
+
     // ---- Air mouse ----
     var airSensitivity by FloatPref("air_sensitivity", 1f)
     /** Which edge of the phone points at the screen: 0 top, 1 right, 2 left. */

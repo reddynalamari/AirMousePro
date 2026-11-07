@@ -6,7 +6,7 @@ package com.airmousepro.data
  * To publish notes for a release: add entries below with `rev = CHANGELOG_REV + 1`, then raise [CHANGELOG_REV] to match.
  * A user who last saw revision N is shown every entry with a higher revision. New installs see the setup guide instead.
  */
-const val CHANGELOG_REV = 1
+const val CHANGELOG_REV = 2
 
 enum class ChangeKind(val label: String) { New("NEW"), Improved("IMPROVED"), Removed("REMOVED") }
 
@@ -37,6 +37,14 @@ val CHANGELOG = listOf(
     ChangeEntry(
         1, ChangeKind.New, "guide", "Setup guide and What's new",
         "New installs get a short walkthrough, and after every update you see a guide like this one covering only what changed. Both can be replayed from Settings.",
+    ),
+    ChangeEntry(
+        2, ChangeKind.New, "gamepad", "Keys mode for the gamepad",
+        "Most PC games ignore a generic Bluetooth gamepad. Turn on Keys on the gamepad page and the same controls press keyboard keys and move the mouse instead: left stick is WASD, right stick is the mouse, the triggers click.",
+    ),
+    ChangeEntry(
+        2, ChangeKind.Improved, "bubble", "Rotation now follows your phone",
+        "With auto-rotate off, the app stays in portrait. The gamepad page no longer turns the screen by itself: it offers a Rotate to landscape button instead.",
     ),
     ChangeEntry(
         1, ChangeKind.Removed, "volume", "Volume and brightness percentage",

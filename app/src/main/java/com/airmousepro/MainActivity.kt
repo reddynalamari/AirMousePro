@@ -180,7 +180,9 @@ fun applyOrientation(activity: ComponentActivity, settings: AppSettings) {
         1 -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         2 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         3 -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else -> if (autoOn) ActivityInfo.SCREEN_ORIENTATION_FULL_USER else ActivityInfo.SCREEN_ORIENTATION_LOCKED
+        // Switch on: any orientation the phone allows. Switch off: always portrait. (LOCKED would freeze whatever
+        // rotation the screen happens to be in, which kept the app sideways after the gamepad page.)
+        else -> if (autoOn) ActivityInfo.SCREEN_ORIENTATION_FULL_USER else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
 }
 
