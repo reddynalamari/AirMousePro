@@ -6,6 +6,8 @@ import com.airmousepro.data.AppSettings
 import com.airmousepro.data.MacroRunner
 import com.airmousepro.data.ShortcutStore
 import com.airmousepro.hid.HidController
+import com.airmousepro.overlay.QuickMenu
+import com.airmousepro.update.UpdateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +19,8 @@ class AirMouseApp : Application() {
     val hid: HidController by lazy { HidController(applicationContext) }
     val shortcuts: ShortcutStore by lazy { ShortcutStore(settings) }
     val macros: MacroRunner by lazy { MacroRunner(hid, appScope) }
+    val quickMenu: QuickMenu by lazy { QuickMenu(this) }
+    val updates: UpdateManager by lazy { UpdateManager(this) }
 }
 
 val Context.app: AirMouseApp get() = applicationContext as AirMouseApp

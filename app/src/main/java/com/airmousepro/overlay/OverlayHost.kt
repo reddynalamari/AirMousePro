@@ -6,11 +6,11 @@ import android.widget.FrameLayout
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.ViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
-import androidx.savedstate.ViewTreeSavedStateRegistryOwner
+import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 
 /**
  * Compose needs a lifecycle and saved-state owner on the view tree. An overlay window has no Activity,
@@ -33,8 +33,8 @@ class OverlayLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
     fun destroy() { registry.currentState = Lifecycle.State.DESTROYED }
 
     fun attachTo(view: android.view.View) {
-        ViewTreeLifecycleOwner.set(view, this)
-        ViewTreeSavedStateRegistryOwner.set(view, this)
+        view.setViewTreeLifecycleOwner(this)
+        view.setViewTreeSavedStateRegistryOwner(this)
     }
 }
 

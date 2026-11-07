@@ -315,8 +315,10 @@ class HidController(private val context: Context) {
 
     fun keyUp() = send(HidDescriptor.ID_KEYBOARD, ByteArray(8))
 
+    fun layout(): KbLayout = KbLayout.values().getOrElse(settings.kbLayout) { KbLayout.US }
+
     fun typeChar(c: Char): Boolean {
-        val (mod, usage) = KeyMap.forChar(c) ?: return false
+        val (mod, usage) = KeyMap.forChar(c, layout()) ?: return false
         keyCombo(mod, usage)
         return true
     }

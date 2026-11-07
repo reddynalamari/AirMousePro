@@ -17,6 +17,13 @@ on:
         type: choice
         options: [patch, minor, major]
         default: patch
+      rollback_to:
+        description: >
+          Optional. An older tag (for example v0.0.3) to rebuild and publish as a NEW, higher version.
+          Android refuses to install an older version over a newer one, so a rollback has to ship as a newer release.
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -33,12 +40,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # need all tags to compute the next version
+          # Empty means the pushed commit; a tag means "rebuild that older source".
+          ref: ${{ inputs.rollback_to || '' }}
 
       - name: Compute next version
         id: ver
         env:
           BUMP: ${{ inputs.bump || 'patch' }}
+          ROLLBACK: ${{ inputs.rollback_to || '' }}
         run: |
+          if [ -n "$ROLLBACK" ] && ! git rev-parse -q --verify "refs/tags/$ROLLBACK" > /dev/null; then
+            echo "::error::rollback_to '$ROLLBACK' is not an existing tag."
+            exit 1
+          fi
           last=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
           if [ -z "$last" ]; then
             next="0.0.1"
@@ -93,10 +107,18 @@ jobs:
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          ROLLBACK: ${{ inputs.rollback_to || '' }}
         run: |
           v="v${{ steps.ver.outputs.version }}"
+          title="AirMouse Pro $v"
+          notes="Install: download **AirMousePro-$v.apk** on your Android phone (Android 9+) and open it. Allow *install unknown apps* when prompted."
+          if [ -n "$ROLLBACK" ]; then
+            title="$title (rollback to $ROLLBACK)"
+            notes="Rollback build: this is the source of **$ROLLBACK** published as a newer version so phones accept it as an update. $notes"
+          fi
+          # HEAD is the checked-out commit: the pushed one normally, or the old tag's commit for a rollback.
           gh release create "$v" dist/* \
-            --target "${{ github.sha }}" \
-            --title "AirMouse Pro $v" \
+            --target "$(git rev-parse HEAD)" \
+            --title "$title" \
             --generate-notes \
-            --notes "Install: download **AirMousePro-$v.apk** on your Android phone (Android 9+) and open it. Allow *install unknown apps* when prompted."
+            --notes "$notes"

@@ -50,6 +50,10 @@ class AppSettings(context: Context) {
     var orientation by IntPref("orientation", 0)
     var keepAwake by BoolPref("keep_awake", true)
 
+    // ---- Keyboard ----
+    /** Index into [com.airmousepro.hid.KbLayout]: the layout the computer is using. */
+    var kbLayout by IntPref("kb_layout", 0)
+
     // ---- Touchpad ----
     var tapToClick by BoolPref("tap_to_click", true)
     var naturalScroll by BoolPref("natural_scroll", false)
@@ -84,6 +88,13 @@ class AppSettings(context: Context) {
     var bubbleY by FloatPref("bubble_y", 0.45f)          // fraction of screen height
     /** Dial contents in order, e.g. "b:touchpad,b:keys,s:abc123". */
     var dialSlots by StringPref("dial_slots", "b:touchpad,b:keys,b:volume,b:playpause")
+
+    // ---- Updates ----
+    var updateAuto by BoolPref("update_auto", true)
+    /** Epoch milliseconds of the last automatic check, kept as text because only Int and Float prefs exist. */
+    var updateLastCheck by StringPref("update_last_check", "0")
+    /** A release tag the user chose to skip; it is not offered again at launch. */
+    var updateSkip by StringPref("update_skip", "")
 
     // ---- Data ----
     var shortcutsJson by StringPref("shortcuts_json", "")

@@ -68,7 +68,7 @@ val OsNames = listOf("Windows", "macOS", "Linux", "Android TV")
 
 /** A grid of one-tap shortcuts. Tap runs one, long-press edits it. */
 @Composable
-fun DeckScreen(hid: HidController) {
+fun ShortcutsPane(hid: HidController) {
     val ctx = LocalContext.current
     val settings = ctx.appSettings
     val store = ctx.app.shortcuts

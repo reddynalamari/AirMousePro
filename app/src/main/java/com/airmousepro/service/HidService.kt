@@ -22,6 +22,7 @@ class HidService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            (application as AirMouseApp).quickMenu.stop()
             (application as AirMouseApp).hid.stop()
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -47,7 +48,14 @@ class HidService : Service() {
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_nav_mouse), "Stop", stop).build())
             .build()
         startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        // The floating quick menu lives as long as this service does.
+        (application as AirMouseApp).quickMenu.start()
         return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        (application as AirMouseApp).quickMenu.stop()
+        super.onDestroy()
     }
 
     private companion object {

@@ -174,6 +174,17 @@ class ShortcutStore(private val settings: AppSettings) {
 class MacroRunner(private val hid: HidController, private val scope: CoroutineScope) {
     private var job: Job? = null
 
+    /** Types plain text on the host, one key at a time, using the selected keyboard layout. */
+    fun typeText(text: String) {
+        job?.cancel()
+        job = scope.launch(Dispatchers.Default) {
+            for (c in text) {
+                hid.typeChar(c)
+                delay(14)
+            }
+        }
+    }
+
     fun run(sc: Shortcut) {
         job?.cancel()
         job = scope.launch(Dispatchers.Default) {

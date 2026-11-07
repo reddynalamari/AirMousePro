@@ -2,8 +2,14 @@ package com.airmousepro
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -12,10 +18,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
@@ -28,7 +31,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.GridView
+import androidx.compose.material.icons.rounded.Keyboard
+import androidx.compose.material.icons.rounded.Mouse
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.SettingsRemote
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,8 +46,6 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,72 +56,109 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.airmousepro.data.AppSettings
 import com.airmousepro.hid.HidController
+import com.airmousepro.input.HardwareKeys
 import com.airmousepro.service.HidService
+import com.airmousepro.ui.AirMouseTheme
 import com.airmousepro.ui.ConnectScreen
+import com.airmousepro.ui.DeckScreen
 import com.airmousepro.ui.KeyboardScreen
 import com.airmousepro.ui.MouseScreen
 import com.airmousepro.ui.RemoteScreen
 import com.airmousepro.ui.SettingsScreen
+import com.airmousepro.ui.UpdatePrompt
 import com.airmousepro.ui.isLandscape
 import com.airmousepro.ui.statusInfo
 
+/** Lets the floating quick menu ask the open app to switch tab. */
+object NavRequests {
+    var tab by mutableIntStateOf(-1)
+}
+
 class MainActivity : ComponentActivity() {
     private lateinit var hid: HidController
+    private val handler = Handler(Looper.getMainLooper())
+    private val rotationObserver = object : ContentObserver(handler) {
+        override fun onChange(selfChange: Boolean) = applyOrientation(this@MainActivity, appSettings)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        hid = (application as AirMouseApp).hid
+        hid = app.hid
         // Let landscape content run under a camera cutout instead of leaving a black bar.
         window.attributes = window.attributes.apply {
             layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
-        setContent { AppTheme { App(hid) } }
+        applyOrientation(this, appSettings)
+        contentResolver.registerContentObserver(Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION), false, rotationObserver)
+        intent?.let { handleIntent(it) }
+        setContent { AirMouseTheme { App(hid) } }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(i: Intent) {
+        val t = i.getIntExtra(EXTRA_TAB, -1)
+        if (t >= 0) NavRequests.tab = t
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The overlay permission may have just been granted in system settings.
+        app.quickMenu.refresh()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = HardwareKeys.handle(event) || super.dispatchKeyEvent(event)
 
     override fun onDestroy() {
         super.onDestroy()
+        contentResolver.unregisterContentObserver(rotationObserver)
         if (isFinishing) {
             hid.stop()
             stopService(Intent(this, HidService::class.java))
         }
     }
-}
 
-private val Blue = Color(0xFF0A84FF)
-
-@Composable
-private fun AppTheme(content: @Composable () -> Unit) {
-    val scheme = if (isSystemInDarkTheme()) {
-        darkColorScheme(
-            primary = Blue, background = Color(0xFF000000), surface = Color(0xFF1C1C1E),
-            surfaceVariant = Color(0xFF2C2C2E), onBackground = Color.White, onSurface = Color.White,
-        )
-    } else {
-        lightColorScheme(
-            primary = Blue, background = Color(0xFFF2F2F7), surface = Color.White,
-            surfaceVariant = Color(0xFFE5E5EA), onBackground = Color.Black, onSurface = Color.Black,
-        )
+    companion object {
+        const val EXTRA_TAB = "tab"
     }
-    MaterialTheme(colorScheme = scheme, content = content)
 }
 
-private data class Tab(val label: String, val icon: Int)
+/**
+ * Orientation policy. "Follow system" honours the phone's auto-rotate switch exactly: when it is off the screen stays
+ * where it is, when it is on all orientations are allowed. The other modes override the switch.
+ */
+fun applyOrientation(activity: ComponentActivity, settings: AppSettings) {
+    val autoOn = Settings.System.getInt(activity.contentResolver, Settings.System.ACCELEROMETER_ROTATION, 0) == 1
+    activity.requestedOrientation = when (settings.orientation) {
+        1 -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        2 -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        3 -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else -> if (autoOn) ActivityInfo.SCREEN_ORIENTATION_FULL_USER else ActivityInfo.SCREEN_ORIENTATION_LOCKED
+    }
+}
+
+private data class Tab(val label: String, val icon: ImageVector)
 
 private val tabs = listOf(
-    Tab("Devices", R.drawable.ic_nav_devices),
-    Tab("Mouse", R.drawable.ic_nav_mouse),
-    Tab("Keys", R.drawable.ic_nav_keyboard),
-    Tab("Remote", R.drawable.ic_nav_remote),
+    Tab("Devices", Icons.Rounded.Bluetooth),
+    Tab("Mouse", Icons.Rounded.Mouse),
+    Tab("Keys", Icons.Rounded.Keyboard),
+    Tab("Deck", Icons.Rounded.GridView),
+    Tab("Remote", Icons.Rounded.SettingsRemote),
 )
 
 @Composable
@@ -124,6 +167,7 @@ private fun App(hid: HidController) {
     var showSettings by remember { mutableStateOf(false) }
     val landscape = isLandscape()
     val ctx = LocalContext.current
+    val settings = ctx.appSettings
 
     val permissions = buildList {
         if (Build.VERSION.SDK_INT >= 31) {
@@ -143,8 +187,20 @@ private fun App(hid: HidController) {
         if (permissions.isEmpty()) startAll() else launcher.launch(permissions)
     }
 
+    // Tab requests from the floating menu.
+    LaunchedEffect(NavRequests.tab) {
+        if (NavRequests.tab >= 0) {
+            tab = NavRequests.tab.coerceIn(0, tabs.lastIndex)
+            showSettings = false
+            NavRequests.tab = -1
+        }
+    }
+
+    // Re-apply the orientation policy whenever the user changes it in Settings.
+    LaunchedEffect(settings.orientation) { applyOrientation(ctx as ComponentActivity, settings) }
+
     // Landscape: hide the status bar for more room; a swipe from the edge brings it back temporarily.
-    val view = androidx.compose.ui.platform.LocalView.current
+    val view = LocalView.current
     LaunchedEffect(landscape) {
         val window = (ctx as android.app.Activity).window
         val controller = WindowCompat.getInsetsController(window, view)
@@ -154,12 +210,16 @@ private fun App(hid: HidController) {
 
     BackHandler(enabled = showSettings) { showSettings = false }
 
+    // Looks for a newer release when the app opens and offers to install it.
+    UpdatePrompt()
+
     val screen: @Composable () -> Unit = {
         when {
             showSettings -> SettingsScreen(hid, onBack = { showSettings = false })
             tab == 0 -> ConnectScreen(hid, onRetry = { if (permissions.isEmpty()) startAll() else launcher.launch(permissions) })
             tab == 1 -> MouseScreen(hid)
             tab == 2 -> KeyboardScreen(hid)
+            tab == 3 -> DeckScreen(hid)
             else -> RemoteScreen(hid)
         }
     }
@@ -181,15 +241,16 @@ private fun App(hid: HidController) {
                             Modifier.padding(top = 8.dp).size(40.dp).clip(CircleShape).clickable { tab = 0 },
                             contentAlignment = Alignment.Center,
                         ) { Box(Modifier.size(12.dp).clip(CircleShape).background(info.color)) }
-                        IconButton(onClick = { showSettings = true }) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
+                        IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
                     },
                 ) {
                     tabs.forEachIndexed { i, t ->
                         NavigationRailItem(
                             selected = tab == i,
                             onClick = { tab = i },
-                            icon = { Icon(painterResource(t.icon), contentDescription = t.label) },
+                            icon = { Icon(t.icon, contentDescription = t.label) },
                             label = { Text(t.label) },
+                            alwaysShowLabel = false,
                         )
                     }
                 }
@@ -209,8 +270,9 @@ private fun App(hid: HidController) {
                             NavigationBarItem(
                                 selected = tab == i,
                                 onClick = { tab = i },
-                                icon = { Icon(painterResource(t.icon), contentDescription = t.label) },
+                                icon = { Icon(t.icon, contentDescription = t.label) },
                                 label = { Text(t.label) },
+                                alwaysShowLabel = false,
                             )
                         }
                     }
@@ -241,6 +303,6 @@ private fun StatusBar(hid: HidController, onStatus: () -> Unit, onSettings: () -
             Text(label, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Medium, maxLines = 1)
         }
         Box(Modifier.weight(1f))
-        IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Settings") }
+        IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }
 }
