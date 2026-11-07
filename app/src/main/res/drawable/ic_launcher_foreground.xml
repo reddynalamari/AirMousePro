@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A mouse with wireless waves rising from it; everything sits inside the 66dp adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,44 C60,44 65,48 65,54 L65,74 C65,80 60,84 54,84 C48,84 43,80 43,74 L43,54 C43,48 48,44 54,44 Z" />
+    <path
+        android:strokeColor="#FF0A84FF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M43,58 L65,58 M54,44 L54,58" />
+    <path
+        android:fillColor="#FF0A84FF"
+        android:pathData="M52.5,48 L55.5,48 L55.5,53 L52.5,53 Z" />
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M48.34,34.34 A8,8 0 0 1 59.66,34.34 M44.1,30.1 A14,14 0 0 1 63.9,30.1 M39.86,25.86 A20,20 0 0 1 68.14,25.86" />
+</vector>
