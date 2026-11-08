@@ -12,7 +12,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.rounded.Mouse
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -70,6 +79,9 @@ import com.airmousepro.hid.Mod
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/** Key height chosen by the landscape layout. Unspecified means the usual portrait and fallback sizes. */
+private val LocalKeyHeight = compositionLocalOf { Dp.Unspecified }
+
 private const val REPEAT_DELAY_MS = 380L
 private const val REPEAT_RATE_MS = 55L
 
@@ -87,9 +99,14 @@ fun KeyboardScreen(hid: HidController) {
         if (r.resultCode == Activity.RESULT_OK && !spoken.isNullOrBlank()) ctx.app.macros.typeText(spoken)
     }
 
+    val landscape = isLandscape()
+    // "More" (navigation, shortcuts and function keys) only exists in landscape. After a rotation back to portrait the
+    // keys come up instead.
+    val shown = if (!landscape && mode == 2) 0 else mode
+
     val toolbar = @Composable {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Segmented(listOf("Keys", "Text"), mode, { mode = it }, Modifier.weight(1f))
+            Segmented(if (landscape) listOf("Keys", "Text", "More") else listOf("Keys", "Text"), shown, { mode = it }, Modifier.weight(1f))
             ToolButton(Icons.Rounded.Mic, "Voice typing") {
                 try {
                     speech.launch(
@@ -121,8 +138,8 @@ fun KeyboardScreen(hid: HidController) {
         }
     }
 
-    val keysPane = @Composable {
-        if (mode == 0) {
+    val keysPane = @Composable { fieldModifier: Modifier ->
+        if (shown != 1) {
             OnScreenKeyboard(hid)
         } else {
             OutlinedTextField(
@@ -137,21 +154,51 @@ fun KeyboardScreen(hid: HidController) {
                     text = if (new.length > 200) new.takeLast(100) else new
                 },
                 label = { Text("Type here, sent as you go") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = fieldModifier.fillMaxWidth(),
             )
         }
     }
 
-    if (isLandscape()) {
-        Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            Column(Modifier.weight(1.5f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                toolbar()
-                keysPane()
-            }
-            Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                NavigationSection(hid)
-                ShortcutsSection(hid)
-                FunctionKeysSection(hid)
+    if (landscape) {
+        // The pad on top, the keyboard below, so one hand-held screen does both jobs with nothing wasted.
+        BoxWithConstraints(Modifier.fillMaxSize().padding(8.dp)) {
+            // About two thirds of the height goes to the keyboard block; the rest is the pad.
+            val block = (maxHeight * 0.64f).coerceIn(170.dp, 250.dp)
+            val keysArea = block - 50.dp
+            val keyH = ((keysArea - 20.dp) / 5).coerceIn(26.dp, 40.dp)
+            val tv = hid.tvMode
+            val left = settings.leftHanded
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val buttons = @Composable {
+                        Column(Modifier.width(96.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (tv) {
+                                Box(Modifier.weight(1f)) { HoldButton("Back", icon = Icons.Rounded.ArrowBack) { if (it) hid.consumer(com.airmousepro.hid.Consumer.BACK) } }
+                                Box(Modifier.weight(1f)) { HoldButton("OK", icon = Icons.Rounded.RadioButtonChecked) { if (it) hid.keyCombo(0, Key.ENTER) } }
+                            } else {
+                                val pair = listOf(
+                                    Triple(Icons.Rounded.TouchApp, "Left", HidController.BUTTON_LEFT),
+                                    Triple(Icons.Rounded.Mouse, "Right", HidController.BUTTON_RIGHT),
+                                ).let { if (left) it.reversed() else it }
+                                pair.forEach { (icon, label, mask) ->
+                                    Box(Modifier.weight(1f)) { HoldButton(label, icon = icon) { hid.setButton(mask, it) } }
+                                }
+                            }
+                        }
+                    }
+                    if (left) buttons()
+                    TouchSurface(hid, Modifier.weight(1f).fillMaxHeight())
+                    if (!left) buttons()
+                }
+                Column(Modifier.fillMaxWidth().height(block), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    toolbar()
+                    Box(Modifier.fillMaxWidth().height(keysArea)) {
+                        when (shown) {
+                            2 -> ExtraKeysPane(hid)
+                            else -> CompositionLocalProvider(LocalKeyHeight provides keyH) { keysPane(Modifier.fillMaxHeight()) }
+                        }
+                    }
+                }
             }
         }
     } else {
@@ -160,7 +207,7 @@ fun KeyboardScreen(hid: HidController) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             toolbar()
-            keysPane()
+            keysPane(Modifier)
             NavigationSection(hid)
             ShortcutsSection(hid)
             FunctionKeysSection(hid)
@@ -297,8 +344,8 @@ private fun RowScope.KeyCap(
     Box(
         Modifier
             .weight(weight)
-            // Shorter keys in landscape so all five rows fit without scrolling.
-            .height(if (isLandscape()) 36.dp else 46.dp)
+            // Landscape sizes the keys to the space left under the pad, so all five rows always fit.
+            .height(LocalKeyHeight.current.takeIf { it != Dp.Unspecified } ?: if (isLandscape()) 36.dp else 46.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .pointerInput(repeat) {
@@ -360,6 +407,71 @@ private fun ShortcutsSection(hid: HidController) = Section("Shortcuts") {
 @Composable
 private fun FunctionKeysSection(hid: HidController) = Section("Function keys") {
     for (n in 1..12) KeyBtn("F$n") { hid.keyCombo(0, Key.f(n)) }
+}
+
+/**
+ * Landscape only: navigation, shortcuts and function keys side by side where the keyboard normally is, so each is one
+ * tap on "More" away instead of a long scroll. Slim keys, and each column scrolls if a small screen needs it.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExtraKeysPane(hid: HidController) {
+    @Composable
+    fun RowScope.Group(title: String, weight: Float, content: @Composable () -> Unit) {
+        Column(Modifier.weight(weight).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) { content() }
+        }
+    }
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Group("Navigate", 0.8f) {
+            SlimKey("Home") { hid.keyCombo(0, Key.HOME) }
+            SlimKey("End") { hid.keyCombo(0, Key.END) }
+            SlimKey("PgUp") { hid.keyCombo(0, Key.PAGE_UP) }
+            SlimKey("PgDn") { hid.keyCombo(0, Key.PAGE_DOWN) }
+            SlimKey("Del") { hid.keyCombo(0, Key.DELETE) }
+        }
+        Group("Shortcuts", 1.5f) {
+            SlimKey("Win") { hid.keyCombo(Mod.GUI) }
+            SlimKey("Alt+Tab") { hid.keyCombo(Mod.ALT, Key.TAB) }
+            SlimKey("Alt+F4") { hid.keyCombo(Mod.ALT, Key.f(4)) }
+            SlimKey("Ctrl+C") { hid.keyCombo(Mod.CTRL, 0x06) }
+            SlimKey("Ctrl+V") { hid.keyCombo(Mod.CTRL, 0x19) }
+            SlimKey("Ctrl+X") { hid.keyCombo(Mod.CTRL, 0x1B) }
+            SlimKey("Ctrl+Z") { hid.keyCombo(Mod.CTRL, 0x1D) }
+            SlimKey("Ctrl+A") { hid.keyCombo(Mod.CTRL, 0x04) }
+            SlimKey("Win+D") { hid.keyCombo(Mod.GUI, 0x07) }
+            SlimKey("Win+L") { hid.keyCombo(Mod.GUI, 0x0F) }
+            SlimKey("Ctrl+Alt+Del") { hid.keyCombo(Mod.CTRL or Mod.ALT, Key.DELETE) }
+        }
+        Group("Function keys", 1f) {
+            for (n in 1..12) SlimKey("F$n") { hid.keyCombo(0, Key.f(n)) }
+        }
+    }
+}
+
+@Composable
+private fun SlimKey(label: String, onClick: () -> Unit) {
+    val settings = LocalContext.current.appSettings
+    val view = LocalView.current
+    var pressed by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .height(32.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (pressed) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 11.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = {
+                    pressed = true
+                    Haptics.tick(view, settings)
+                    onClick()
+                    tryAwaitRelease()
+                    pressed = false
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) { Text(label, fontSize = 12.sp) }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
