@@ -97,6 +97,7 @@ import com.airmousepro.ui.KeyboardScreen
 import com.airmousepro.ui.MouseScreen
 import com.airmousepro.ui.RemoteScreen
 import com.airmousepro.ui.SettingsScreen
+import com.airmousepro.ui.TargetPicker
 import com.airmousepro.ui.UpdatePrompt
 import com.airmousepro.ui.isLandscape
 import com.airmousepro.ui.statusInfo
@@ -402,6 +403,7 @@ private fun App(hid: HidController) {
                     IconButton(onClick = { showSettings = true }, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(22.dp))
                     }
+                    TargetPicker(hid, iconOnly = true)
                     Box(Modifier.height(6.dp))
                     tabs.forEachIndexed { i, t ->
                         val selected = tab == i
@@ -479,6 +481,7 @@ private fun StatusBar(hid: HidController, onStatus: () -> Unit, onSettings: () -
     ) {
         Row(
             Modifier
+                .weight(1f, fill = false)
                 .clip(RoundedCornerShape(50))
                 .background(MaterialTheme.colorScheme.surface)
                 .clickable(onClick = onStatus)
@@ -486,9 +489,10 @@ private fun StatusBar(hid: HidController, onStatus: () -> Unit, onSettings: () -
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(9.dp).clip(CircleShape).background(info.color))
-            Text(label, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(label, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         }
         Box(Modifier.weight(1f))
+        TargetPicker(hid)
         IconButton(onClick = onSettings) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
     }
 }

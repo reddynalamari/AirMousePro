@@ -65,8 +65,6 @@ import com.airmousepro.hid.Key
 import com.airmousepro.hid.KeyMap
 import com.airmousepro.hid.Mod
 
-val OsNames = listOf("Windows", "macOS", "Linux", "Android TV")
-
 /** A grid of one-tap shortcuts. Tap runs one, long-press edits it. */
 @Composable
 fun ShortcutsPane(hid: HidController) {
@@ -105,19 +103,6 @@ fun ShortcutsPane(hid: HidController) {
             Tile(Icons.Rounded.Add, "New", compact = compact, onTap = { editing = Shortcut.create("", "bolt", emptyList()) }, onLong = {}, dim = true)
         }
     }
-}
-
-/** The target system decides how "open website" and "open app" shortcuts and the three-finger gestures are sent. */
-@Composable
-fun OsChip() {
-    val settings = LocalContext.current.appSettings
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surface)
-            .clickable { settings.os = (settings.os + 1) % OsNames.size }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    ) { Text(OsNames[settings.os.coerceIn(0, OsNames.lastIndex)], fontSize = 13.sp, fontWeight = FontWeight.Medium) }
 }
 
 @Composable
@@ -234,9 +219,9 @@ fun ShortcutEditor(initial: Shortcut, isNew: Boolean, onClose: () -> Unit) {
             }
         }
 
-        if (settings.os == 3) {
+        if (settings.os in 3..4) {
             Text(
-                "Android TV can't be told to launch an app directly over Bluetooth. This opens search and types the name; " +
+                "Android can't be told to launch an app directly over Bluetooth. This opens search and types the name; " +
                     "test it on your TV and adjust the waits.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
             )

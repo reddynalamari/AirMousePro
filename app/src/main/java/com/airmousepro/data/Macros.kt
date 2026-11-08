@@ -86,11 +86,16 @@ object Templates {
     private const val OS_WINDOWS = 0
     private const val OS_MAC = 1
     private const val OS_ANDROID_TV = 3
+    private const val OS_ANDROID_PHONE = 4
+    private const val OS_IOS = 5
     private const val KEY_R = 0x15
     private const val KEY_SPACE = Key.SPACE
     private const val KEY_F2 = 0x3B
 
     fun openWebsite(os: Int, url: String): List<Step> = when (os) {
+        // Phones and TVs: open search and type. An iPhone uses Spotlight, like a Mac.
+        OS_ANDROID_TV, OS_ANDROID_PHONE -> listOf(Step.Media(0x221), Step.Wait(2200), Step.Text(url), Step.Wait(1800), Step.Combo(0, listOf(Key.ENTER)))
+        OS_IOS -> listOf(Step.Combo(Mod.GUI, listOf(KEY_SPACE)), Step.Wait(900), Step.Text(url), Step.Wait(900), Step.Combo(0, listOf(Key.ENTER)))
         OS_WINDOWS -> listOf(Step.Combo(Mod.GUI, listOf(KEY_R)), Step.Wait(600), Step.Text(url), Step.Wait(150), Step.Combo(0, listOf(Key.ENTER)))
         OS_MAC -> listOf(Step.Combo(Mod.GUI, listOf(KEY_SPACE)), Step.Wait(600), Step.Text(url), Step.Wait(300), Step.Combo(0, listOf(Key.ENTER)))
         // GNOME: Alt+F2 opens the run prompt.
@@ -100,7 +105,8 @@ object Templates {
     fun openApp(os: Int, name: String): List<Step> = when (os) {
         OS_WINDOWS -> listOf(Step.Combo(Mod.GUI, emptyList()), Step.Wait(700), Step.Text(name), Step.Wait(900), Step.Combo(0, listOf(Key.ENTER)))
         OS_MAC -> listOf(Step.Combo(Mod.GUI, listOf(KEY_SPACE)), Step.Wait(600), Step.Text(name), Step.Wait(600), Step.Combo(0, listOf(Key.ENTER)))
-        OS_ANDROID_TV -> listOf(Step.Media(0x221), Step.Wait(2200), Step.Text(name), Step.Wait(1800), Step.Combo(0, listOf(Key.ENTER)))
+        OS_ANDROID_TV, OS_ANDROID_PHONE -> listOf(Step.Media(0x221), Step.Wait(2200), Step.Text(name), Step.Wait(1800), Step.Combo(0, listOf(Key.ENTER)))
+        OS_IOS -> listOf(Step.Combo(Mod.GUI, listOf(KEY_SPACE)), Step.Wait(900), Step.Text(name), Step.Wait(900), Step.Combo(0, listOf(Key.ENTER)))
         else -> listOf(Step.Combo(Mod.GUI, emptyList()), Step.Wait(800), Step.Text(name), Step.Wait(900), Step.Combo(0, listOf(Key.ENTER)))
     }
 }

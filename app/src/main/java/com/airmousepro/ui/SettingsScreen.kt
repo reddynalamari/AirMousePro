@@ -147,11 +147,7 @@ fun SettingsScreen(hid: HidController, onBack: () -> Unit, onReplaySetup: () -> 
 
             SettingsCard("Connection") {
                 SettingRow("Reconnect automatically", "Connects to the last device when the app starts.", s.autoReconnect) { s.autoReconnect = it }
-                ChoiceRow("Controlling", OsNames, s.os, detail = "Used by gestures and by “open website” and “open app” shortcuts.") { s.os = it }
-                ChoiceRow(
-                    "TV remote mode", listOf("Auto", "Always", "Never"), s.tvMode,
-                    detail = "On a TV, swipes press arrow keys and a tap is OK. Auto turns it on when the connected device looks like a TV.",
-                ) { s.tvMode = it }
+                ChoiceRow("Controlling", OsNames, s.os, detail = "Detected when you connect. You can also change it from the switch at the top of the app.") { hid.setTarget(it) }
                 SettingRow(
                     "Show as “AirMouse - your phone name”",
                     "Renames your phone's Bluetooth name while the app runs. Your original name is restored on exit.",

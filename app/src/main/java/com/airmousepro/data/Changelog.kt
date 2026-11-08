@@ -19,8 +19,16 @@ val CHANGELOG = listOf(
         "When the connected device is a TV, the touchpad becomes a remote. Swipe to move the highlight, tap for OK, two fingers to go back, three for Home. Two fingers up or down changes volume.",
     ),
     ChangeEntry(
+        5, ChangeKind.New, "bluetooth", "Knows what you are connected to",
+        "The app now tells a Windows PC, Mac, Linux machine, Android TV, Android phone and iPhone apart when you connect. A small switch at the top shows the result and lets you correct it in one tap. Your choice is remembered for that device.",
+    ),
+    ChangeEntry(
+        5, ChangeKind.Improved, "gamepad", "Works with phones and tablets",
+        "Controlling an Android phone or an iPhone or iPad now uses Home and Back where they exist, and shortcuts that open a website or app use the right search for each. On an iPhone, turn on AssistiveTouch so it shows the pointer.",
+    ),
+    ChangeEntry(
         5, ChangeKind.Improved, "gamepad", "Air mouse on a TV",
-        "On a TV a quick flick of your wrist presses an arrow key instead of moving a pointer. You can force this on or off in Settings under TV remote mode.",
+        "On a TV a quick flick of your wrist presses an arrow key instead of moving a pointer.",
     ),
     ChangeEntry(
         1, ChangeKind.New, "bluetooth", "Reconnects by itself",

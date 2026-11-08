@@ -22,16 +22,10 @@ import com.airmousepro.hid.HidController
 fun DeckScreen(hid: HidController) {
     var mode by rememberSaveable { mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
-        // One slim row: the mode switch, and on the Shortcuts page the target-system chip beside it.
-        Row(
-            Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
+        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
             Box(Modifier.weight(1f)) {
                 Segmented(listOf("Shortcuts", "Present", "Gamepad"), mode, { mode = it }, Modifier.widthIn(max = 420.dp))
             }
-            if (mode == 0) OsChip()
         }
         Box(Modifier.weight(1f)) {
             when (mode) {

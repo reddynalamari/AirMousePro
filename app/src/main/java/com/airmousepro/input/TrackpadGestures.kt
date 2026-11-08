@@ -29,6 +29,8 @@ private const val PX_PER_NOTCH = 22f           // two-finger scroll distance for
 private const val PX_PER_ZOOM_NOTCH = 36f      // pinch distance for one Ctrl+wheel notch
 private const val FLING_MIN_PX_PER_MS = 0.35f
 private const val OS_ANDROID_TV = 3
+private const val OS_ANDROID_PHONE = 4
+private const val OS_IOS = 5
 private const val NAV_WINDOW_MS = 420L      // a back or forward swipe has to be quick
 private const val NAV_DIST_DP = 56f         // and cover at least this much sideways distance
 
@@ -290,7 +292,9 @@ fun navigateHistory(hid: HidController, os: Int, forward: Boolean) {
     when (os) {
         // macOS: Cmd+[ and Cmd+] (US layout positions of the bracket keys).
         1 -> hid.keyCombo(Mod.GUI, if (forward) 0x30 else 0x2F)
-        OS_ANDROID_TV -> if (!forward) hid.consumer(Consumer.BACK)
+        // TVs and Android phones have a Back key. iPhones have no back or forward over Bluetooth.
+        OS_ANDROID_TV, OS_ANDROID_PHONE -> if (!forward) hid.consumer(Consumer.BACK)
+        OS_IOS -> {}
         else -> hid.keyCombo(Mod.ALT, if (forward) Key.RIGHT else Key.LEFT)
     }
 }
@@ -300,6 +304,15 @@ enum class SwipeDir { Up, Down, Left, Right }
 /** Three-finger swipes mapped to the target operating system's own gestures. */
 fun threeFingerAction(hid: HidController, os: Int, dir: SwipeDir) {
     if (os == OS_ANDROID_TV) return
+    // Phones: swipe up for Home, down for Back. Sideways has no phone equivalent.
+    if (os == OS_ANDROID_PHONE || os == OS_IOS) {
+        when (dir) {
+            SwipeDir.Up -> hid.consumer(Consumer.HOME)
+            SwipeDir.Down -> if (os == OS_ANDROID_PHONE) hid.consumer(Consumer.BACK)
+            else -> {}
+        }
+        return
+    }
     val d = 0x07
     val tab = Key.TAB
     when (os) {

@@ -49,29 +49,29 @@ class HidController(private val context: Context) {
 
     var hostName by mutableStateOf<String?>(null); private set
 
-    /** The connected device looks like a TV, going by its Bluetooth device class and its name. */
-    var isTv by mutableStateOf(false); private set
+    /** What the connected device is: 0 Windows, 1 macOS, 2 Linux, 3 Android TV, 4 Android phone, 5 iPhone or iPad. */
+    val target: Int get() = settings.os.coerceIn(0, 5)
 
     /**
      * True when the touchpad and air mouse should act as a TV remote. TVs are navigated with arrow keys and OK, and
-     * most ignore a free-moving pointer, so a pointer feels broken there. The setting can force it on or off.
+     * most ignore a free-moving pointer, so a pointer feels broken there. It follows the chosen target only.
      */
-    val tvMode: Boolean
-        get() = when (settings.tvMode) {
-            1 -> true
-            2 -> false
-            else -> isTv || settings.os == 3
-        }
+    val tvMode: Boolean get() = target == 3
 
+    /** The user's own choice from the picker. It is remembered for the connected device, so it sticks next time. */
+    fun setTarget(os: Int) {
+        settings.os = os
+        host?.address?.let { settings.setOsFor(it, os) }
+    }
+
+    /** Picks the target for a device that just connected: the user's earlier choice, else what it looks like. */
     @SuppressLint("MissingPermission")
-    private fun looksLikeTv(d: BluetoothDevice): Boolean {
+    private fun chooseTarget(d: BluetoothDevice) {
+        val saved = settings.osFor(d.address)
         val c = d.bluetoothClass
-        if (c != null && c.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO &&
-            (c.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_DISPLAY_AND_LOUDSPEAKER ||
-                c.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_MONITOR)
-        ) return true
-        val name = d.name ?: return false
-        return TV_NAME.containsMatchIn(name)
+        val found = saved ?: detectOs(d.name, c?.majorDeviceClass, c?.deviceClass)
+        // Unknown device: keep the last computer choice, but never carry a TV over to something that is not one.
+        settings.os = found ?: settings.os.takeIf { it != 3 } ?: 0
     }
 
     /** Address of the connected device, or null. Read it together with [hostName] so Compose sees changes. */
@@ -180,7 +180,7 @@ class HidController(private val context: Context) {
                     connectFailure = null
                     host = device
                     hostName = device.name ?: device.address
-                    isTv = looksLikeTv(device)
+                    chooseTarget(device)
                     settings.lastHost = device.address
                     settings.recordConnected(device.address)
                     connectingTo = null
@@ -200,7 +200,7 @@ class HidController(private val context: Context) {
                     if (!stale) {
                         // A silent auto-reconnect that finds the host switched off is not worth a warning card.
                         if (state == State.Connecting && !autoAttempt) connectFailure = device.name ?: device.address
-                        if (device == host) { host = null; hostName = null; isTv = false }
+                        if (device == host) { host = null; hostName = null }
                         connectingTo = null
                         state = if (hid != null) State.Ready else State.Idle
                         if (device == autoCurrent) main.post { advanceAuto() }
@@ -686,10 +686,35 @@ class HidController(private val context: Context) {
     }
 
     companion object {
+        private val IOS_NAME = Regex("(?i)iphone|ipad|ipod")
+        private val MAC_NAME = Regex("(?i)macbook|imac|mac ?mini|mac ?studio|mac ?pro|\\bmac\\b|macos")
+        private val WINDOWS_NAME = Regex("(?i)^(desktop|laptop)-|windows|\\bpc\\b|surface|thinkpad|pavilion|inspiron|vivobook|zenbook|ideapad|legion|predator|omen|latitude|xps")
+        private val LINUX_NAME = Regex("(?i)linux|ubuntu|fedora|debian|manjaro|raspberry|kali|pop!?_os|chromebook|chromeos")
         /** Names TVs commonly advertise: MiTV-..., [TV] Samsung, LG webOS TV, BRAVIA, Fire TV, Chromecast and so on. */
         private val TV_NAME = Regex(
-            "(?i)mitv|bravia|chromecast|roku|tizen|webos|fire ?tv|android ?tv|google ?tv|nvidia shield|\\btv\\b|^tv|tv$",
+            "(?i)mitv|mi tv|redmi tv|bravia|chromecast|roku|tizen|webos|fire ?tv|android ?tv|google ?tv|nvidia shield|\\[tv\\]|^tv\\b|\\btv$|smart ?tv|tcl|hisense|vizio",
         )
+
+        /**
+         * Works out what a device is from its name and Bluetooth class, or null when it cannot tell. A computer's own
+         * class always wins over a TV-looking name, so a laptop can never be taken for a TV.
+         */
+        fun detectOs(name: String?, major: Int?, minor: Int?): Int? {
+            val n = name.orEmpty()
+            return when {
+                IOS_NAME.containsMatchIn(n) -> 5
+                MAC_NAME.containsMatchIn(n) -> 1
+                WINDOWS_NAME.containsMatchIn(n) -> 0
+                LINUX_NAME.containsMatchIn(n) -> 2
+                major == BluetoothClass.Device.Major.COMPUTER -> 0
+                TV_NAME.containsMatchIn(n) -> 3
+                major == BluetoothClass.Device.Major.AUDIO_VIDEO &&
+                    (minor == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_DISPLAY_AND_LOUDSPEAKER ||
+                        minor == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_MONITOR) -> 3
+                major == BluetoothClass.Device.Major.PHONE -> 4
+                else -> null
+            }
+        }
 
         /** Shortest gap between merged pointer or gamepad reports: about 110 a second, which a Bluetooth link can carry. */
         private const val MOVE_GAP_NS = 9_000_000L

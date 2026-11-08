@@ -99,13 +99,21 @@ class AppSettings(context: Context) {
     fun forgetRecent(address: String) {
         connectedHistory = history().filterNot { it.first == address }.joinToString(",") { "${it.first}|${it.second}" }
     }
-    /** 0 Windows, 1 macOS, 2 Linux, 3 Android TV. */
-    var os by IntPref("os_profile", 0)
     /**
-     * How the touchpad and air mouse behave: 0 detect a TV automatically, 1 always as a TV remote, 2 never.
-     * As a TV remote they send arrow keys and OK instead of moving a pointer, which is how TVs are navigated.
+     * What the connected device is: 0 Windows, 1 macOS, 2 Linux, 3 Android TV, 4 Android phone, 5 iPhone or iPad.
+     * Set from the device when it connects, and changed by hand from the picker at the top of the app.
      */
-    var tvMode by IntPref("tv_mode", 0)
+    var os by IntPref("os_profile", 0)
+    /** The target chosen by hand for each device, as "address=index" pairs. */
+    private var osByDevice by StringPref("os_by_device", "")
+
+    fun osFor(address: String): Int? =
+        osByDevice.split(',').firstOrNull { it.startsWith("$address=") }?.substringAfter('=')?.toIntOrNull()
+
+    fun setOsFor(address: String, os: Int) {
+        val rest = osByDevice.split(',').filter { it.isNotBlank() && !it.startsWith("$address=") }
+        osByDevice = (rest + "$address=$os").takeLast(12).joinToString(",")
+    }
 
     // ---- Quick menu ----
     var quickMenu by BoolPref("quick_menu", false)
