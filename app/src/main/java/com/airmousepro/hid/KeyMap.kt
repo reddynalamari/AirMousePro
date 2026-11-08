@@ -39,6 +39,8 @@ object Consumer {
     const val HOME = 0x223
     const val BACK = 0x224
     const val MENU = 0x40
+    const val FAST_FORWARD = 0xB3
+    const val REWIND = 0xB4
     /** Display brightness keys; Windows, macOS and most Linux desktops act on these. */
     const val BRIGHTNESS_UP = 0x6F
     const val BRIGHTNESS_DOWN = 0x70

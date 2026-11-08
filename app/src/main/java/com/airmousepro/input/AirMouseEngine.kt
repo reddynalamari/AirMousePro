@@ -34,6 +34,8 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
     /** The finger (or a volume key) has been held long enough to drag: the pointer moves again. */
     @Volatile var dragging = false
     @Volatile var onToggleRequest: (() -> Unit)? = null
+    /** Asked on every gyro sample: true while the phone is controlling a TV. */
+    @Volatile var tvMode: (() -> Boolean)? = null
 
     private val sm = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val gyro = sm.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
@@ -60,6 +62,7 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
     private var lastShakeNs = 0L
     private var shakeCount = 0
     private var lastTwistNs = 0L
+    private var lastFlickNs = 0L
 
     fun start() {
         gyro?.let { sm.registerListener(this, it, SAMPLE_US) }
@@ -161,6 +164,12 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         val yawRate = wx * ux + wy * uy + wz * uz
         val pitchRate = if (rn > 0.3f) (wx * rx + wy * ry + wz * rz) / rn else wx
 
+        // A TV has no pointer to steer, so a quick flick of the wrist presses an arrow key instead.
+        if (tvMode?.invoke() == true) {
+            tvFlick(e.timestamp, yawRate, pitchRate)
+            return
+        }
+
         // Heavier smoothing when slow (steady hand), none when fast (flicks stay responsive).
         // The floor is kept modest: heavier smoothing steadies the hand but adds delay you can feel.
         val alpha = (0.4f + speed * 0.4f).coerceIn(0.4f, 1f)
@@ -193,6 +202,25 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         }
     }
 
+    /**
+     * Flick right, left, up or down to move the TV's highlight one step. Turning right is a negative yaw rate. A short
+     * rest after each flick stops the swing back from counting as a flick the other way. Sensitivity scales the speed
+     * a flick has to reach. Nothing happens while a finger is on the screen or the pointer is paused.
+     */
+    private fun tvFlick(now: Long, yaw: Float, pitch: Float) {
+        if (!active || touching || now - lastFlickNs < FLICK_REST_NS) return
+        val needed = FLICK_RATE / settings.airSensitivity.coerceAtLeast(0.3f)
+        val ay = abs(yaw)
+        val ap = abs(pitch)
+        if (ay < needed && ap < needed) return
+        lastFlickNs = now
+        if (ay >= ap) {
+            hid.keyCombo(0, if (yaw < 0) Key.RIGHT else Key.LEFT)
+        } else {
+            hid.keyCombo(0, if (pitch > 0) Key.UP else Key.DOWN)
+        }
+    }
+
     /** A quick wrist roll clockwise goes Forward, anticlockwise goes Back. */
     private fun detectTwist(now: Long, rollRate: Float) {
         if (!active || abs(rollRate) < TWIST_RATE || now - lastTwistNs < 900_000_000L) return
@@ -208,5 +236,7 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         const val STILL_RATE = 0.05f
         const val SHAKE_G = 22f              // m/s^2
         const val TWIST_RATE = 7f            // rad/s
+        const val FLICK_RATE = 2.4f          // rad/s a wrist flick must reach to press an arrow on a TV
+        const val FLICK_REST_NS = 380_000_000L
     }
 }

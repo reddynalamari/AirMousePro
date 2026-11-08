@@ -17,6 +17,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Mouse
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.CircleShape
+import com.airmousepro.hid.Consumer
+import com.airmousepro.hid.Key
+import com.airmousepro.input.tvPad
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.UnfoldMore
 import androidx.compose.material.icons.rounded.ZoomIn
@@ -60,13 +74,20 @@ fun TouchpadScreen(hid: HidController) {
         Triple(Icons.Rounded.Mouse, "Right", HidController.BUTTON_RIGHT),
     ).let { if (left) it.reversed() else it }
 
+    // Controlling a TV: swipes press arrow keys and the buttons are TV keys, not mouse buttons.
+    val tv = hid.tvMode
+
     if (isLandscape()) {
         val side: @Composable () -> Unit = {
             Column(Modifier.width(132.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                buttons.forEach { (icon, label, mask) ->
-                    HoldButton(label, Modifier.weight(if (mask == HidController.BUTTON_MIDDLE) 0.6f else 1f), icon = icon) { hid.setButton(mask, it) }
+                if (tv) {
+                    TvButtons(hid, vertical = true)
+                } else {
+                    buttons.forEach { (icon, label, mask) ->
+                        HoldButton(label, Modifier.weight(if (mask == HidController.BUTTON_MIDDLE) 0.6f else 1f), icon = icon) { hid.setButton(mask, it) }
+                    }
+                    SpeedSlider()
                 }
-                SpeedSlider()
             }
         }
         Row(Modifier.fillMaxSize().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -77,12 +98,16 @@ fun TouchpadScreen(hid: HidController) {
     } else {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             TouchSurface(hid, Modifier.weight(1f).fillMaxWidth())
-            Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                buttons.forEach { (icon, label, mask) ->
-                    HoldButton(label, Modifier.weight(if (mask == HidController.BUTTON_MIDDLE) 0.6f else 1f), icon = icon) { hid.setButton(mask, it) }
+            if (tv) {
+                Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) { TvButtons(hid, vertical = false) }
+            } else {
+                Row(Modifier.fillMaxWidth().height(60.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    buttons.forEach { (icon, label, mask) ->
+                        HoldButton(label, Modifier.weight(if (mask == HidController.BUTTON_MIDDLE) 0.6f else 1f), icon = icon) { hid.setButton(mask, it) }
+                    }
                 }
+                SpeedSlider()
             }
-            SpeedSlider()
         }
     }
 }
@@ -107,6 +132,7 @@ fun TouchSurface(hid: HidController, modifier: Modifier) {
     var touches by remember { mutableStateOf(emptyList<Offset>()) }
     val dot = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
     val ring = MaterialTheme.colorScheme.primary
+    val tv = hid.tvMode
 
     Box(
         modifier
@@ -137,15 +163,68 @@ fun TouchSurface(hid: HidController, modifier: Modifier) {
                     }
                 }
             }
-            .trackpad(hid, settings, view, scope) { speed },
+            // A TV is navigated with arrow keys and OK, so it gets the remote-style pad instead of a pointer.
+            .then(if (tv) Modifier.tvPad(hid, settings, view) else Modifier.trackpad(hid, settings, view, scope) { speed }),
         contentAlignment = Alignment.Center,
     ) {
         if (touches.isEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
-                HintIcon(Icons.Rounded.TouchApp, "tap")
-                HintIcon(Icons.Rounded.Swipe, "2 fingers")
-                HintIcon(Icons.Rounded.ZoomIn, "pinch")
+            if (tv) {
+                DpadGlyph(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f))
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
+                    HintIcon(Icons.Rounded.TouchApp, "tap")
+                    HintIcon(Icons.Rounded.Swipe, "2 fingers")
+                    HintIcon(Icons.Rounded.ZoomIn, "pinch")
+                }
             }
+        }
+    }
+}
+
+/** A faint D-pad drawn on the pad when it is acting as a TV remote. Just a picture, no words. */
+@Composable
+fun DpadGlyph(tint: Color) {
+    Box(Modifier.size(120.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(34.dp).clip(CircleShape).border(2.dp, tint, CircleShape))
+        Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null, tint = tint, modifier = Modifier.align(Alignment.TopCenter).size(34.dp))
+        Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, tint = tint, modifier = Modifier.align(Alignment.BottomCenter).size(34.dp))
+        Icon(Icons.Rounded.KeyboardArrowLeft, contentDescription = null, tint = tint, modifier = Modifier.align(Alignment.CenterStart).size(34.dp))
+        Icon(Icons.Rounded.KeyboardArrowRight, contentDescription = null, tint = tint, modifier = Modifier.align(Alignment.CenterEnd).size(34.dp))
+    }
+}
+
+/** The four keys a TV remote always has: Back, Home, OK and Menu. They sit where the mouse buttons normally are. */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.TvButtons(hid: HidController, @Suppress("UNUSED_PARAMETER") vertical: Boolean) {
+    TvKey(Icons.AutoMirrored.Rounded.ArrowBack, "Back", Modifier.weight(1f)) { hid.consumer(Consumer.BACK) }
+    TvKey(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { hid.consumer(Consumer.HOME) }
+    TvKey(Icons.Rounded.RadioButtonChecked, "OK", Modifier.weight(1f)) { hid.keyCombo(0, Key.ENTER) }
+    TvKey(Icons.Rounded.Menu, "Menu", Modifier.weight(1f)) { hid.consumer(Consumer.MENU) }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.ColumnScope.TvButtons(hid: HidController, vertical: Boolean) {
+    TvKey(Icons.AutoMirrored.Rounded.ArrowBack, "Back", Modifier.weight(1f)) { hid.consumer(Consumer.BACK) }
+    TvKey(Icons.Rounded.Home, "Home", Modifier.weight(1f)) { hid.consumer(Consumer.HOME) }
+    TvKey(Icons.Rounded.RadioButtonChecked, "OK", Modifier.weight(1f)) { hid.keyCombo(0, Key.ENTER) }
+    TvKey(Icons.Rounded.Menu, "Menu", Modifier.weight(1f)) { hid.consumer(Consumer.MENU) }
+}
+
+@Composable
+private fun TvKey(icon: ImageVector, label: String, modifier: Modifier, onClick: () -> Unit) {
+    val settings = LocalContext.current.appSettings
+    val view = LocalView.current
+    Box(
+        modifier
+            .fillMaxSize()
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .pointerInput(Unit) { detectTapGestures(onPress = { Haptics.tap(view, settings); onClick() }) },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = label, modifier = Modifier.size(24.dp))
+            Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
         }
     }
 }

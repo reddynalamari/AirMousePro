@@ -220,7 +220,7 @@ private val tabs = listOf(
 @Composable
 private fun App(hid: HidController) {
     // Already connected when the app opens (for example from the floating bubble): go straight to the mouse.
-    var tab by remember { mutableIntStateOf(if (hid.state == HidController.State.Connected) 1 else 0) }
+    var tab by remember { mutableIntStateOf(if (hid.state == HidController.State.Connected) (if (hid.tvMode) 4 else 1) else 0) }
     var showSettings by remember { mutableStateOf(false) }
     val launchedAt = remember { SystemClock.elapsedRealtime() }
     var launchNavDone by remember { mutableStateOf(hid.state == HidController.State.Connected) }
@@ -230,7 +230,7 @@ private fun App(hid: HidController) {
     LaunchedEffect(hid.state) {
         if (hid.state == HidController.State.Connected && !launchNavDone) {
             launchNavDone = true
-            if (SystemClock.elapsedRealtime() - launchedAt < 60_000 && tab == 0) tab = 1
+            if (SystemClock.elapsedRealtime() - launchedAt < 60_000 && tab == 0) tab = if (hid.tvMode) 4 else 1
         }
     }
     val landscape = isLandscape()

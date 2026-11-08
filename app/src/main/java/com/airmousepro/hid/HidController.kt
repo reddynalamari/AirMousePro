@@ -49,6 +49,31 @@ class HidController(private val context: Context) {
 
     var hostName by mutableStateOf<String?>(null); private set
 
+    /** The connected device looks like a TV, going by its Bluetooth device class and its name. */
+    var isTv by mutableStateOf(false); private set
+
+    /**
+     * True when the touchpad and air mouse should act as a TV remote. TVs are navigated with arrow keys and OK, and
+     * most ignore a free-moving pointer, so a pointer feels broken there. The setting can force it on or off.
+     */
+    val tvMode: Boolean
+        get() = when (settings.tvMode) {
+            1 -> true
+            2 -> false
+            else -> isTv || settings.os == 3
+        }
+
+    @SuppressLint("MissingPermission")
+    private fun looksLikeTv(d: BluetoothDevice): Boolean {
+        val c = d.bluetoothClass
+        if (c != null && c.majorDeviceClass == BluetoothClass.Device.Major.AUDIO_VIDEO &&
+            (c.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_DISPLAY_AND_LOUDSPEAKER ||
+                c.deviceClass == BluetoothClass.Device.AUDIO_VIDEO_VIDEO_MONITOR)
+        ) return true
+        val name = d.name ?: return false
+        return TV_NAME.containsMatchIn(name)
+    }
+
     /** Address of the connected device, or null. Read it together with [hostName] so Compose sees changes. */
     val hostAddress: String? get() = if (hostName != null) host?.address else null
 
@@ -155,6 +180,7 @@ class HidController(private val context: Context) {
                     connectFailure = null
                     host = device
                     hostName = device.name ?: device.address
+                    isTv = looksLikeTv(device)
                     settings.lastHost = device.address
                     settings.recordConnected(device.address)
                     connectingTo = null
@@ -174,7 +200,7 @@ class HidController(private val context: Context) {
                     if (!stale) {
                         // A silent auto-reconnect that finds the host switched off is not worth a warning card.
                         if (state == State.Connecting && !autoAttempt) connectFailure = device.name ?: device.address
-                        if (device == host) { host = null; hostName = null }
+                        if (device == host) { host = null; hostName = null; isTv = false }
                         connectingTo = null
                         state = if (hid != null) State.Ready else State.Idle
                         if (device == autoCurrent) main.post { advanceAuto() }
@@ -660,6 +686,11 @@ class HidController(private val context: Context) {
     }
 
     companion object {
+        /** Names TVs commonly advertise: MiTV-..., [TV] Samsung, LG webOS TV, BRAVIA, Fire TV, Chromecast and so on. */
+        private val TV_NAME = Regex(
+            "(?i)mitv|bravia|chromecast|roku|tizen|webos|fire ?tv|android ?tv|google ?tv|nvidia shield|\\btv\\b|^tv|tv$",
+        )
+
         /** Shortest gap between merged pointer or gamepad reports: about 110 a second, which a Bluetooth link can carry. */
         private const val MOVE_GAP_NS = 9_000_000L
         private const val AUTO_TIMEOUT_MS = 9_000L

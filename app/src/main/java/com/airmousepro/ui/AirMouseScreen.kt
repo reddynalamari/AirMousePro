@@ -49,8 +49,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.airmousepro.appSettings
+import com.airmousepro.hid.Consumer
 import com.airmousepro.hid.HidController
+import com.airmousepro.hid.Key
 import com.airmousepro.input.AirMouseEngine
+import com.airmousepro.input.tvPad
 import com.airmousepro.input.HardwareKeys
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -80,10 +83,13 @@ fun AirMouseScreen(hid: HidController) {
     DisposableEffect(engine) {
         engine.active = true
         engine.onToggleRequest = { active = !active }
+        // On a TV the engine flicks arrow keys instead of steering a pointer.
+        engine.tvMode = { hid.tvMode }
         engine.start()
         onDispose {
             engine.stop()
             engine.onToggleRequest = null
+            engine.tvMode = null
         }
     }
     DisposableEffect(active) {
@@ -98,6 +104,13 @@ fun AirMouseScreen(hid: HidController) {
             HardwareKeys.handler = { e ->
                 if (e.keyCode != KeyEvent.KEYCODE_VOLUME_UP && e.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) {
                     false
+                } else if (hid.tvMode) {
+                    // On a TV the volume keys are the two buttons you want under your thumb: OK and Back.
+                    if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
+                        Haptics.tap(view, settings)
+                        if (e.keyCode == KeyEvent.KEYCODE_VOLUME_UP) hid.keyCombo(0, Key.ENTER) else hid.consumer(Consumer.BACK)
+                    }
+                    true
                 } else {
                     val button = if (e.keyCode == KeyEvent.KEYCODE_VOLUME_UP) HidController.BUTTON_LEFT else HidController.BUTTON_RIGHT
                     if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
@@ -202,6 +215,7 @@ private fun AirSurface(
     val settings = LocalContext.current.appSettings
     val view = LocalView.current
     val accent = MaterialTheme.colorScheme.primary
+    val tv = hid.tvMode
     val bg = when {
         dragUi -> accent.copy(alpha = 0.35f)
         active -> MaterialTheme.colorScheme.surface
@@ -212,7 +226,10 @@ private fun AirSurface(
         modifier
             .clip(RoundedCornerShape(26.dp))
             .background(bg)
-            .pointerInput(Unit) {
+            // On a TV the screen is a swipe-for-arrows pad (tap is OK); the pointer gestures below step aside.
+            .then(if (tv) Modifier.tvPad(hid, settings, view) else Modifier)
+            .pointerInput(tv) {
+                if (tv) return@pointerInput
                 val slop = viewConfiguration.touchSlop * 1.6f
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
@@ -293,10 +310,14 @@ private fun AirSurface(
         contentAlignment = Alignment.Center,
     ) {
         val c = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-        Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
-            AirHint(Icons.Rounded.TouchApp, "click", c)
-            AirHint(Icons.Rounded.PanTool, "hold = drag", c)
-            AirHint(Icons.Rounded.Swipe, "swipe = scroll", c)
+        if (tv) {
+            DpadGlyph(c)
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(22.dp), verticalAlignment = Alignment.CenterVertically) {
+                AirHint(Icons.Rounded.TouchApp, "click", c)
+                AirHint(Icons.Rounded.PanTool, "hold = drag", c)
+                AirHint(Icons.Rounded.Swipe, "swipe = scroll", c)
+            }
         }
     }
 }

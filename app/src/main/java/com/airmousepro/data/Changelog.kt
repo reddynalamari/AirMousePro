@@ -6,7 +6,7 @@ package com.airmousepro.data
  * To publish notes for a release: add entries below with `rev = CHANGELOG_REV + 1`, then raise [CHANGELOG_REV] to match.
  * A user who last saw revision N is shown every entry with a higher revision. New installs see the setup guide instead.
  */
-const val CHANGELOG_REV = 4
+const val CHANGELOG_REV = 5
 
 enum class ChangeKind(val label: String) { New("NEW"), Improved("IMPROVED"), Removed("REMOVED") }
 
@@ -14,6 +14,14 @@ enum class ChangeKind(val label: String) { New("NEW"), Improved("IMPROVED"), Rem
 data class ChangeEntry(val rev: Int, val kind: ChangeKind, val icon: String, val title: String, val body: String)
 
 val CHANGELOG = listOf(
+    ChangeEntry(
+        5, ChangeKind.New, "bubble", "TV remote mode",
+        "When the connected device is a TV, the touchpad becomes a remote. Swipe to move the highlight, tap for OK, two fingers to go back, three for Home. Two fingers up or down changes volume.",
+    ),
+    ChangeEntry(
+        5, ChangeKind.Improved, "gamepad", "Air mouse on a TV",
+        "On a TV a quick flick of your wrist presses an arrow key instead of moving a pointer. You can force this on or off in Settings under TV remote mode.",
+    ),
     ChangeEntry(
         1, ChangeKind.New, "bluetooth", "Reconnects by itself",
         "When the app opens it tries the devices you used before and connects to the first one that is available. The Devices page has a new Recent list.",

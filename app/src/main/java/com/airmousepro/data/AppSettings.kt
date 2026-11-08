@@ -101,6 +101,11 @@ class AppSettings(context: Context) {
     }
     /** 0 Windows, 1 macOS, 2 Linux, 3 Android TV. */
     var os by IntPref("os_profile", 0)
+    /**
+     * How the touchpad and air mouse behave: 0 detect a TV automatically, 1 always as a TV remote, 2 never.
+     * As a TV remote they send arrow keys and OK instead of moving a pointer, which is how TVs are navigated.
+     */
+    var tvMode by IntPref("tv_mode", 0)
 
     // ---- Quick menu ----
     var quickMenu by BoolPref("quick_menu", false)
