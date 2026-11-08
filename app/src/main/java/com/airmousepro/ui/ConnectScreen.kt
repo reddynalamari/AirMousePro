@@ -116,7 +116,7 @@ private fun deviceIcon(d: BluetoothDevice): ImageVector {
 
 @SuppressLint("MissingPermission")
 @Composable
-fun ConnectScreen(hid: HidController, onRetry: () -> Unit) {
+fun ConnectScreen(hid: HidController, onRetry: () -> Unit, onScan: () -> Unit) {
     val ctx = LocalContext.current
     val settings = ctx.appSettings
     var refresh by remember { mutableIntStateOf(0) }
@@ -214,6 +214,55 @@ fun ConnectScreen(hid: HidController, onRetry: () -> Unit) {
                     TextButton(onClick = { showAll = !showAll }) {
                         Text(if (showAll) "Hide headphones and car kits" else "Show ${hidden.size} more (headphones, car kits)")
                     }
+                }
+            }
+
+            // New devices: scan, then tap one to pair. This is how a TV that hides the phone from its own list is reached.
+            hid.pairFailure?.let { name ->
+                item {
+                    Card(tint = StatusOrange.copy(alpha = 0.16f)) {
+                        Text("Pairing with $name did not finish", fontWeight = FontWeight.SemiBold)
+                        Text("Try again, and accept the pairing code on both devices.", fontSize = 14.sp)
+                        TextButton(onClick = { hid.dismissPairFailure() }) { Text("Dismiss") }
+                    }
+                }
+            }
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { SectionLabel("Nearby devices") }
+                    TextButton(onClick = { if (hid.scanning) hid.stopScan() else onScan() }) { Text(if (hid.scanning) "Stop" else "Scan") }
+                }
+            }
+            if (hid.scanning) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 4.dp)) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("  Looking for devices…", fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                    }
+                }
+            }
+            items(hid.nearby.size) { i ->
+                val n = hid.nearby[i]
+                val pairing = hid.pairingAddress == n.device.address
+                DeviceRow(
+                    icon = deviceIcon(n.device), name = n.name,
+                    subtitle = if (pairing) "Pairing… accept the code on both devices" else "Tap to pair",
+                    highlight = false, enabled = !pairing && hid.pairingAddress == null, onClick = { hid.pair(n) },
+                    trailing = {
+                        if (pairing) {
+                            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(end = 12.dp).size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("Pair", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium, modifier = Modifier.padding(end = 6.dp))
+                        }
+                    },
+                )
+            }
+            if (!hid.scanning && hid.nearby.isEmpty()) {
+                item {
+                    Text(
+                        "Tap Scan to find devices around you. On a TV or computer, open its Bluetooth settings first so it can be found.",
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+                    )
                 }
             }
 
@@ -339,6 +388,8 @@ private fun PairCard(hid: HidController) {
         Step(3, "Accept the code on both. It then appears here to connect.")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 4.dp)) {
             Button(onClick = {
+                // Being found and paired from the other side must not be interrupted by reconnecting to recent devices.
+                hid.cancelAutoConnect()
                 ctx.startActivity(
                     Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
                         .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300),

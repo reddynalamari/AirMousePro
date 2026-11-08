@@ -118,6 +118,8 @@ class AppSettings(context: Context) {
     var whatsNewSeen by IntPref("whats_new_seen", 0)
     /** True once the Bluetooth permission dialog has been shown, so it is never raised again on its own. */
     var permAsked by BoolPref("perm_asked", false)
+    /** True once the scan permission prompt has been shown, after which a refusal sends the user to app settings. */
+    var scanAsked by BoolPref("scan_asked", false)
 
     // ---- Updates ----
     var updateAuto by BoolPref("update_auto", true)

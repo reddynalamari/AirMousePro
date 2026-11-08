@@ -26,7 +26,7 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 
 | Area | What you get |
 |---|---|
-| **Devices** | Remembers the devices you have connected to and reconnects to the most recent one that is available whenever the app opens. |
+| **Devices** | Remembers the devices you have connected to and reconnects to the most recent one that is available whenever the app opens. A **Scan** button finds new devices around you and pairs them without leaving the app. |
 | **Trackpad** | Move, tap to click, tap-and-drag, two-finger scroll in both directions, two-finger tap to right-click, three-finger tap to middle-click, pinch to zoom, and three-finger swipes for task view, desktop and app switching. |
 | **Air mouse** | The cursor follows where the phone points. Tap anywhere to click, two fingers to right-click, press and hold to drag, swipe to scroll, or use the volume keys as buttons. The pointer holds still while you tap, so clicks land where you aimed. |
 | **Keyboard** | On-screen keyboard with sticky Ctrl, Alt, Win and Shift. Layouts for US, UK, German, French and Spanish. Voice typing, typing your clipboard, and sharing text from any app to type it on the computer. |
@@ -96,7 +96,7 @@ AirMouse Pro can type and click on the computer it is connected to, so it is bui
 - There is no app lock yet.
 
 **Permissions**
-- The app asks for permissions once, in the setup guide. It never asks again on its own. If you decline one, that feature stays off until you allow it yourself, in Settings or in the phone's app settings.
+- The app asks for permissions once, in the setup guide. It never asks again on its own. The one exception is when you tap something that needs a permission you skipped, such as **Scan**. If you decline, that feature stays off until you allow it yourself, in Settings or in the phone's app settings.
 
 **Floating menu**
 - It uses Android's "display over other apps" permission only to draw the bubble and dial, and only while this app is in the background. The app does not use accessibility services and cannot read what other apps show.
@@ -123,7 +123,8 @@ Please do not post it in a public issue. Open the **Security** tab of this repos
 
 | Permission | Why |
 |---|---|
-| Nearby devices (Bluetooth) | Pair with, connect to and appear as a Bluetooth device |
+| Nearby devices (Bluetooth) | Pair with, connect to and appear as a Bluetooth device, and scan for new ones. It is never used to find your location |
+| Location (Android 10 and 11 only) | Those versions only allow Bluetooth scanning with this permission. It is not used for your location |
 | Notifications | Show the "running" notification with its Stop button |
 | Display over other apps | Draw the floating bubble and dial |
 | Run in the background | Keep the app alive so Android does not drop the Bluetooth connection |

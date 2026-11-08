@@ -85,6 +85,8 @@ fun Modifier.trackpad(
         var velTime = t0
 
         var swipeInit = false
+        var prevMoveTime = t0
+        var fingerSpeed = 0f
 
         while (true) {
             val event = awaitPointerEvent()
@@ -106,11 +108,15 @@ fun Modifier.trackpad(
                     val d = pressed[0].positionChange()
                     remX += d.x
                     remY += d.y
+                    // Finger speed in pixels per millisecond, smoothed. Events arrive unevenly, so speed measured per
+                    // event would make the same stroke accelerate differently from moment to moment.
+                    val dt = (lastEventTime - prevMoveTime).coerceAtLeast(1L)
+                    prevMoveTime = lastEventTime
+                    fingerSpeed = fingerSpeed * 0.65f + (hypot(d.x, d.y) / dt) * 0.35f
                     // Ignore the first few pixels so a tap never nudges the cursor.
                     if (!pointerArmed && maxMoved > moveDeadzone) pointerArmed = true
                     if (pointerArmed) {
-                        val len = hypot(remX, remY)
-                        val gain = speed() * curve(len, settings.accelPreset)
+                        val gain = speed() * curve(fingerSpeed, settings.accelPreset)
                         val ix = (remX * gain).roundToInt()
                         val iy = (remY * gain).roundToInt()
                         if (ix != 0 || iy != 0) {
@@ -248,11 +254,11 @@ fun Modifier.trackpad(
     }
 }
 
-/** Pointer gain: slow strokes stay precise, quick strokes cover distance. */
-private fun curve(len: Float, preset: Int): Float = when (preset) {
-    0 -> 0.8f + (len / 30f).coerceAtMost(0.8f)
-    2 -> 1.3f + (len / 12f).coerceAtMost(3.5f)
-    else -> 1f + (len / 18f).coerceAtMost(2.2f)
+/** Pointer gain from finger speed in pixels per millisecond: slow strokes stay precise, quick strokes cover distance. */
+private fun curve(speed: Float, preset: Int): Float = when (preset) {
+    0 -> 0.8f + (speed / 1.8f).coerceAtMost(0.8f)
+    2 -> 1.3f + (speed / 0.7f).coerceAtMost(3.5f)
+    else -> 1f + (speed / 1.08f).coerceAtMost(2.2f)
 }
 
 enum class SwipeDir { Up, Down, Left, Right }

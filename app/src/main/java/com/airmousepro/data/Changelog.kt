@@ -6,7 +6,7 @@ package com.airmousepro.data
  * To publish notes for a release: add entries below with `rev = CHANGELOG_REV + 1`, then raise [CHANGELOG_REV] to match.
  * A user who last saw revision N is shown every entry with a higher revision. New installs see the setup guide instead.
  */
-const val CHANGELOG_REV = 2
+const val CHANGELOG_REV = 3
 
 enum class ChangeKind(val label: String) { New("NEW"), Improved("IMPROVED"), Removed("REMOVED") }
 
@@ -37,6 +37,18 @@ val CHANGELOG = listOf(
     ChangeEntry(
         1, ChangeKind.New, "guide", "Setup guide and What's new",
         "New installs get a short walkthrough, and after every update you see a guide like this one covering only what changed. Both can be replayed from Settings.",
+    ),
+    ChangeEntry(
+        3, ChangeKind.New, "bluetooth", "Find and pair new devices",
+        "The Devices page now has a Nearby devices list. Tap Scan, then tap a TV or computer to pair it without leaving the app. This also reaches TVs that hide the phone from their own accessory list.",
+    ),
+    ChangeEntry(
+        3, ChangeKind.Improved, "bubble", "Smoother cursor",
+        "Pointer movement is now sent from its own thread and merged into steady updates, which removes the lag and sticking you could feel. Touchpad acceleration now follows finger speed, so it stays even.",
+    ),
+    ChangeEntry(
+        3, ChangeKind.Improved, "bluetooth", "Refresh no longer reconnects",
+        "Refreshing the Devices page used to reconnect to your recent devices every time, which got in the way of pairing a new one. Now only opening the app does that.",
     ),
     ChangeEntry(
         2, ChangeKind.New, "gamepad", "Keys mode for the gamepad",

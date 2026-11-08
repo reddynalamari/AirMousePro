@@ -220,6 +220,8 @@ private fun App(hid: HidController) {
         if (Build.VERSION.SDK_INT >= 31) {
             add(Manifest.permission.BLUETOOTH_CONNECT)
             add(Manifest.permission.BLUETOOTH_ADVERTISE)
+            // Same "Nearby devices" prompt; lets the Devices page scan for new devices.
+            add(Manifest.permission.BLUETOOTH_SCAN)
         }
         // Lets the "AirMouse is running" notification show; the app works without it.
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
@@ -254,6 +256,30 @@ private fun App(hid: HidController) {
             }
         } else {
             startAll()
+        }
+    }
+
+    // Scanning for new devices. Installs from before scanning existed never granted the scan permission, so it is
+    // asked for here, when the user taps Scan, and not before. After one refusal the app settings page is opened instead.
+    val scanPermissions = if (Build.VERSION.SDK_INT >= 31) {
+        arrayOf(Manifest.permission.BLUETOOTH_SCAN)
+    } else {
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+    }
+    val scanLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        if (hid.hasScanPermission()) hid.startScan()
+    }
+    val onScan: () -> Unit = {
+        when {
+            hid.hasScanPermission() -> hid.startScan()
+            !settings.scanAsked -> {
+                settings.scanAsked = true
+                scanLauncher.launch(scanPermissions)
+            }
+            else -> ctx.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
         }
     }
 
@@ -317,7 +343,7 @@ private fun App(hid: HidController) {
                 onReplaySetup = { showSettings = false; guide = GuideState.Setup },
                 onReplayWhatsNew = { showSettings = false; guide = GuideState.WhatsNew(unseenChanges(0)) },
             )
-            tab == 0 -> ConnectScreen(hid, onRetry = onRetry)
+            tab == 0 -> ConnectScreen(hid, onRetry = onRetry, onScan = onScan)
             tab == 1 -> MouseScreen(hid)
             tab == 2 -> KeyboardScreen(hid)
             tab == 3 -> DeckScreen(hid)

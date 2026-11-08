@@ -162,7 +162,8 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         val pitchRate = if (rn > 0.3f) (wx * rx + wy * ry + wz * rz) / rn else wx
 
         // Heavier smoothing when slow (steady hand), none when fast (flicks stay responsive).
-        val alpha = (0.25f + speed * 0.35f).coerceIn(0.25f, 1f)
+        // The floor is kept modest: heavier smoothing steadies the hand but adds delay you can feel.
+        val alpha = (0.4f + speed * 0.4f).coerceIn(0.4f, 1f)
         sx += (yawRate - sx) * alpha
         sy += (pitchRate - sy) * alpha
         val ox = if (abs(sx) < DEAD_ZONE) 0f else sx
