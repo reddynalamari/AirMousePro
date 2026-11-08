@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.drawable.Icon
 import android.os.IBinder
+import androidx.core.app.ServiceCompat
 import com.airmousepro.AirMouseApp
 import com.airmousepro.MainActivity
 import com.airmousepro.R
@@ -47,7 +48,8 @@ class HidService : Service() {
             .setOngoing(true)
             .addAction(Notification.Action.Builder(Icon.createWithResource(this, R.drawable.ic_nav_mouse), "Stop", stop).build())
             .build()
-        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        // The version with a service type only exists from Android 10; the compat call falls back on Android 9.
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         // The floating quick menu lives as long as this service does.
         (application as AirMouseApp).quickMenu.start()
         return START_NOT_STICKY

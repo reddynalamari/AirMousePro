@@ -62,6 +62,8 @@ class AppSettings(context: Context) {
     var padSpeed by FloatPref("pad_speed", 1.2f)
     var scrollSpeed by FloatPref("scroll_speed", 1f)
     var threeFingerGestures by BoolPref("three_finger", true)
+    /** A quick sideways two-finger swipe goes back (left) or forward (right). */
+    var twoFingerNav by BoolPref("two_finger_nav", true)
     var pinchZoom by BoolPref("pinch_zoom", true)
     var inertia by BoolPref("inertia", true)
     var leftHanded by BoolPref("left_handed", false)

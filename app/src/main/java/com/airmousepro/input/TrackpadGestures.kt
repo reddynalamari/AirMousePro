@@ -9,6 +9,7 @@ import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import com.airmousepro.data.AppSettings
+import com.airmousepro.hid.Consumer
 import com.airmousepro.hid.HidController
 import com.airmousepro.hid.Key
 import com.airmousepro.hid.Mod
@@ -28,6 +29,8 @@ private const val PX_PER_NOTCH = 22f           // two-finger scroll distance for
 private const val PX_PER_ZOOM_NOTCH = 36f      // pinch distance for one Ctrl+wheel notch
 private const val FLING_MIN_PX_PER_MS = 0.35f
 private const val OS_ANDROID_TV = 3
+private const val NAV_WINDOW_MS = 420L      // a back or forward swipe has to be quick
+private const val NAV_DIST_DP = 56f         // and cover at least this much sideways distance
 
 private enum class Mode { Undecided, Scroll, Zoom, Swipe3 }
 
@@ -83,6 +86,11 @@ fun Modifier.trackpad(
         var velX = 0f
         var velY = 0f
         var velTime = t0
+
+        // Two-finger back and forward swipe.
+        var navX = 0f
+        var navY = 0f
+        var navDone = false
 
         var swipeInit = false
         var prevMoveTime = t0
@@ -145,21 +153,36 @@ fun Modifier.trackpad(
                     when (mode) {
                         Mode.Scroll -> {
                             val s = settings.scrollSpeed
-                            scrollAccX += dC.x * s
-                            scrollAccY += dC.y * s
-                            // Natural: content follows the fingers, so fingers down = wheel up and fingers right = pan left.
-                            val sgn = if (settings.naturalScroll) 1 else -1
-                            val vy = (scrollAccY / PX_PER_NOTCH).toInt()
-                            val vx = (scrollAccX / PX_PER_NOTCH).toInt()
-                            if (vy != 0 || vx != 0) {
-                                hid.scroll(vy * sgn, -vx * sgn)
-                                scrollAccY -= vy * PX_PER_NOTCH
-                                scrollAccX -= vx * PX_PER_NOTCH
+                            // Back and forward: a quick, mostly sideways two-finger stroke. It is judged on how far the
+                            // fingers have travelled since scrolling began, so slow sideways movement still scrolls.
+                            navX += dC.x
+                            navY += dC.y
+                            val early = settings.twoFingerNav && lastEventTime - t0 < NAV_WINDOW_MS
+                            if (!navDone && early && abs(navX) > NAV_DIST_DP * density && abs(navX) > abs(navY) * 2.2f) {
+                                navDone = true
+                                scrollAccX = 0f
+                                Haptics.tick(view, settings)
+                                // Fingers moving left go back, fingers moving right go forward.
+                                navigateHistory(hid, settings.os, forward = navX > 0)
                             }
-                            val dt = (lastEventTime - velTime).coerceAtLeast(1)
-                            velX = velX * 0.6f + (dC.x / dt) * 0.4f
-                            velY = velY * 0.6f + (dC.y / dt) * 0.4f
-                            velTime = lastEventTime
+                            if (!navDone) {
+                                scrollAccX += dC.x * s
+                                scrollAccY += dC.y * s
+                                // Natural: content follows the fingers, so fingers down = wheel up and fingers right = pan left.
+                                val sgn = if (settings.naturalScroll) 1 else -1
+                                val vy = (scrollAccY / PX_PER_NOTCH).toInt()
+                                // Sideways scrolling waits out the short window in which a swipe could still be recognised.
+                                val vx = if (early) 0 else (scrollAccX / PX_PER_NOTCH).toInt()
+                                if (vy != 0 || vx != 0) {
+                                    hid.scroll(vy * sgn, -vx * sgn)
+                                    scrollAccY -= vy * PX_PER_NOTCH
+                                    scrollAccX -= vx * PX_PER_NOTCH
+                                }
+                                val dt = (lastEventTime - velTime).coerceAtLeast(1)
+                                velX = velX * 0.6f + (dC.x / dt) * 0.4f
+                                velY = velY * 0.6f + (dC.y / dt) * 0.4f
+                                velTime = lastEventTime
+                            }
                         }
                         Mode.Zoom -> {
                             if (!zoomHeld) {
@@ -223,7 +246,8 @@ fun Modifier.trackpad(
                     else -> hid.click(HidController.BUTTON_MIDDLE)
                 }
             }
-            mode == Mode.Scroll && settings.inertia -> {
+            // No momentum after a back or forward swipe: that stroke was a command, not a scroll.
+            mode == Mode.Scroll && settings.inertia && !navDone -> {
                 val vx = velX
                 val vy = velY
                 if (hypot(vx, vy) > FLING_MIN_PX_PER_MS) {
@@ -259,6 +283,16 @@ private fun curve(speed: Float, preset: Int): Float = when (preset) {
     0 -> 0.8f + (speed / 1.8f).coerceAtMost(0.8f)
     2 -> 1.3f + (speed / 0.7f).coerceAtMost(3.5f)
     else -> 1f + (speed / 1.08f).coerceAtMost(2.2f)
+}
+
+/** Browser and file-manager history, for the two-finger swipe. Android TV only has Back. */
+fun navigateHistory(hid: HidController, os: Int, forward: Boolean) {
+    when (os) {
+        // macOS: Cmd+[ and Cmd+] (US layout positions of the bracket keys).
+        1 -> hid.keyCombo(Mod.GUI, if (forward) 0x30 else 0x2F)
+        OS_ANDROID_TV -> if (!forward) hid.consumer(Consumer.BACK)
+        else -> hid.keyCombo(Mod.ALT, if (forward) Key.RIGHT else Key.LEFT)
+    }
 }
 
 enum class SwipeDir { Up, Down, Left, Right }

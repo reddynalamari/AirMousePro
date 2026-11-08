@@ -18,6 +18,9 @@ import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -130,7 +133,12 @@ class QuickMenu(private val app: AirMouseApp) {
         val rootView = OverlayRoot(ctx) { onConfigChanged() }
         lifecycleOwner.attachTo(rootView)
         val compose = ComposeView(ctx).apply {
-            setContent { AirMouseTheme { QuickMenuContent() } }
+            // Overlay windows have no Surface either, so give their text a readable default colour explicitly.
+            setContent {
+                AirMouseTheme {
+                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) { QuickMenuContent() }
+                }
+            }
         }
         rootView.addView(compose)
 

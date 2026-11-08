@@ -28,7 +28,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -46,6 +53,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -121,7 +129,17 @@ class MainActivity : ComponentActivity() {
         applyOrientation(this, appSettings)
         contentResolver.registerContentObserver(Settings.System.getUriFor(Settings.System.ACCELEROMETER_ROTATION), false, rotationObserver)
         intent?.let { handleIntent(it) }
-        setContent { AirMouseTheme { App(hid) } }
+        // The Surface is what gives text its default colour. Without it, any Text with no explicit colour is black,
+        // which is invisible on the dark themes wherever a screen is not inside a Scaffold (landscape, the guides).
+        setContent {
+            AirMouseTheme {
+                Surface(
+                    Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                    contentColor = MaterialTheme.colorScheme.onBackground,
+                ) { App(hid) }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -154,7 +172,10 @@ class MainActivity : ComponentActivity() {
         app.quickMenu.refresh()
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean = HardwareKeys.handle(event) || super.dispatchKeyEvent(event)
+    // Volume keys can be claimed by the air mouse and the presentation clicker; everything else behaves as normal.
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean = HardwareKeys.handle(event) || super.onKeyDown(keyCode, event)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean = HardwareKeys.handle(event) || super.onKeyUp(keyCode, event)
 
     override fun onDestroy() {
         super.onDestroy()
@@ -360,26 +381,43 @@ private fun App(hid: HidController) {
                 .windowInsetsPadding(WindowInsets.displayCutout),
         ) {
             if (!showSettings) {
-                NavigationRail(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    header = {
-                        // Connection dot and settings stay reachable without a top bar.
-                        val info = statusInfo(hid)
-                        Box(
-                            Modifier.padding(top = 8.dp).size(40.dp).clip(CircleShape).clickable { tab = 0 },
-                            contentAlignment = Alignment.Center,
-                        ) { Box(Modifier.size(12.dp).clip(CircleShape).background(info.color)) }
-                        IconButton(onClick = { showSettings = true }) { Icon(Icons.Rounded.Settings, contentDescription = "Settings") }
-                    },
+                // A slim rail built for short screens. The stock rail needs about 70dp per tab and ran off the bottom
+                // of a phone held sideways, so the last tab was cut off. This one fits and scrolls if it ever has to.
+                Column(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(68.dp)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .verticalScroll(rememberScrollState())
+                        .padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
+                    // Connection dot and settings stay reachable without a top bar.
+                    val info = statusInfo(hid)
+                    Box(
+                        Modifier.size(40.dp).clip(CircleShape).clickable { tab = 0 },
+                        contentAlignment = Alignment.Center,
+                    ) { Box(Modifier.size(12.dp).clip(CircleShape).background(info.color)) }
+                    IconButton(onClick = { showSettings = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Rounded.Settings, contentDescription = "Settings", modifier = Modifier.size(22.dp))
+                    }
+                    Box(Modifier.height(6.dp))
                     tabs.forEachIndexed { i, t ->
-                        NavigationRailItem(
-                            selected = tab == i,
-                            onClick = { tab = i },
-                            icon = { Icon(t.icon, contentDescription = t.label) },
-                            label = { Text(t.label) },
-                            alwaysShowLabel = false,
-                        )
+                        val selected = tab == i
+                        Box(
+                            Modifier
+                                .size(width = 52.dp, height = 40.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                .clickable { tab = i },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                t.icon, contentDescription = t.label, modifier = Modifier.size(24.dp),
+                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                            )
+                        }
                     }
                 }
             }

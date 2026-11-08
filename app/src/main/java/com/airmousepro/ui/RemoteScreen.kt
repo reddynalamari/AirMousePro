@@ -86,7 +86,7 @@ private fun NavPad(hid: HidController) {
     Pad(Icons.Rounded.KeyboardArrowUp, "Up") { hid.keyCombo(0, Key.UP) }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Pad(Icons.Rounded.KeyboardArrowLeft, "Left") { hid.keyCombo(0, Key.LEFT) }
-        Button(onClick = { hid.keyCombo(0, Key.ENTER) }, modifier = Modifier.size(84.dp)) { Text("OK") }
+        Button(onClick = { hid.keyCombo(0, Key.ENTER) }, modifier = Modifier.size(if (isLandscape()) 66.dp else 84.dp)) { Text("OK") }
         Pad(Icons.Rounded.KeyboardArrowRight, "Right") { hid.keyCombo(0, Key.RIGHT) }
     }
     Pad(Icons.Rounded.KeyboardArrowDown, "Down") { hid.keyCombo(0, Key.DOWN) }
@@ -123,6 +123,7 @@ private fun Pad(icon: ImageVector, description: String, onClick: () -> Unit) {
             Haptics.tap(view, settings)
             onClick()
         },
-        modifier = Modifier.size(64.dp),
-    ) { Icon(icon, contentDescription = description, modifier = Modifier.size(28.dp)) }
+        // Smaller in landscape so each column fits the short screen without scrolling.
+        modifier = Modifier.size(if (isLandscape()) 52.dp else 64.dp),
+    ) { Icon(icon, contentDescription = description, modifier = Modifier.size(if (isLandscape()) 24.dp else 28.dp)) }
 }

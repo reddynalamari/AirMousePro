@@ -6,7 +6,7 @@ package com.airmousepro.data
  * To publish notes for a release: add entries below with `rev = CHANGELOG_REV + 1`, then raise [CHANGELOG_REV] to match.
  * A user who last saw revision N is shown every entry with a higher revision. New installs see the setup guide instead.
  */
-const val CHANGELOG_REV = 3
+const val CHANGELOG_REV = 4
 
 enum class ChangeKind(val label: String) { New("NEW"), Improved("IMPROVED"), Removed("REMOVED") }
 
@@ -37,6 +37,18 @@ val CHANGELOG = listOf(
     ChangeEntry(
         1, ChangeKind.New, "guide", "Setup guide and What's new",
         "New installs get a short walkthrough, and after every update you see a guide like this one covering only what changed. Both can be replayed from Settings.",
+    ),
+    ChangeEntry(
+        4, ChangeKind.New, "bubble", "Back and forward with two fingers",
+        "Swipe two fingers quickly to the left on the touchpad to go back, and to the right to go forward. Slow sideways movement still scrolls. You can turn it off in Settings.",
+    ),
+    ChangeEntry(
+        4, ChangeKind.Improved, "bluetooth", "Scanning finds your TV",
+        "The Nearby devices scan now picks up devices that your phone's own Bluetooth screen finds, including ones whose name arrives a moment late.",
+    ),
+    ChangeEntry(
+        4, ChangeKind.Improved, "bubble", "Much better in landscape",
+        "Text that was invisible in landscape is readable again. The side rail now fits every tab, the Devices page uses two panes, Deck shows three rows of shortcuts, and the keyboard and remote fit without scrolling.",
     ),
     ChangeEntry(
         3, ChangeKind.New, "bluetooth", "Find and pair new devices",

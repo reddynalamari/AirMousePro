@@ -297,7 +297,8 @@ private fun RowScope.KeyCap(
     Box(
         Modifier
             .weight(weight)
-            .height(46.dp)
+            // Shorter keys in landscape so all five rows fit without scrolling.
+            .height(if (isLandscape()) 36.dp else 46.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(bg)
             .pointerInput(repeat) {

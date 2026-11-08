@@ -132,13 +132,15 @@ fun ConnectScreen(hid: HidController, onRetry: () -> Unit, onScan: () -> Unit) {
     val shownOthers = if (showAll) others else likely
     val ready = hid.state == State.Ready
 
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+    // In landscape the status ring sits in its own pane on the left, so the lists get the full height on the right.
+    val landscape = isLandscape()
+    val list: @Composable (Modifier) -> Unit = { listModifier ->
         LazyColumn(
-            Modifier.widthIn(max = 640.dp).fillMaxHeight(),
+            listModifier,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Hero(hid, recent.firstOrNull()?.first) }
+            if (!landscape) item { Hero(hid, recent.firstOrNull()?.first) }
 
             hid.connectFailure?.let { name ->
                 item {
@@ -260,13 +262,31 @@ fun ConnectScreen(hid: HidController, onRetry: () -> Unit, onScan: () -> Unit) {
             if (!hid.scanning && hid.nearby.isEmpty()) {
                 item {
                     Text(
-                        "Tap Scan to find devices around you. On a TV or computer, open its Bluetooth settings first so it can be found.",
+                        if (hid.scanFinished) {
+                            "Nothing new found. Make sure the TV or computer is showing its Bluetooth settings so it can be seen, then scan again. " +
+                                "If your phone's own Bluetooth screen finds it but this does not, copy the log from Settings > Developer options and send it to me."
+                        } else {
+                            "Tap Scan to find devices around you. On a TV or computer, open its Bluetooth settings first so it can be found."
+                        },
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
                     )
                 }
             }
 
             item { PairCard(hid) }
+        }
+    }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        if (landscape) {
+            Row(Modifier.fillMaxSize()) {
+                Box(Modifier.weight(0.85f).fillMaxHeight().padding(start = 16.dp, top = 12.dp, bottom = 12.dp), contentAlignment = Alignment.Center) {
+                    Hero(hid, recent.firstOrNull()?.first)
+                }
+                list(Modifier.weight(1.15f).fillMaxHeight())
+            }
+        } else {
+            list(Modifier.widthIn(max = 640.dp).fillMaxHeight())
         }
     }
 }
@@ -279,13 +299,20 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/** Large status ring that spins while a connection is being made, with the one action that makes sense right now. */
+/**
+ * Large status ring that spins while a connection is being made, with the one action that makes sense right now.
+ * Reading a device name needs the Bluetooth permission, which is always held by the time a device is shown here:
+ * the connect button only appears once the app has registered with Bluetooth.
+ */
+@SuppressLint("MissingPermission")
 @Composable
 private fun Hero(hid: HidController, mostRecent: BluetoothDevice?) {
     val info = statusInfo(hid)
     val auto = hid.autoStatus
     val searching = auto is AutoStatus.Trying || hid.state == State.Connecting
     val connected = hid.state == State.Connected
+    // A smaller ring in landscape, where the screen is only about 360dp tall.
+    val compact = isLandscape()
 
     val spin = rememberInfiniteTransition(label = "spin")
     val angle by spin.animateFloat(0f, 360f, infiniteRepeatable(tween(1300, easing = LinearEasing), RepeatMode.Restart), label = "angle")
@@ -303,11 +330,11 @@ private fun Hero(hid: HidController, mostRecent: BluetoothDevice?) {
             .clip(RoundedCornerShape(28.dp))
             .background(MaterialTheme.colorScheme.surface)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), RoundedCornerShape(28.dp))
-            .padding(vertical = 24.dp, horizontal = 20.dp),
+            .padding(vertical = if (compact) 14.dp else 24.dp, horizontal = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp),
     ) {
-        Box(Modifier.size(124.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(if (compact) 88.dp else 124.dp), contentAlignment = Alignment.Center) {
             Canvas(Modifier.fillMaxSize()) {
                 val stroke = 6.dp.toPx()
                 val inset = stroke / 2
@@ -319,7 +346,7 @@ private fun Hero(hid: HidController, mostRecent: BluetoothDevice?) {
                     drawArc(color, 0f, 360f, false, topLeft = Offset(inset, inset), size = arcSize, style = Stroke(stroke))
                 }
             }
-            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(46.dp))
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(if (compact) 34.dp else 46.dp))
         }
 
         val title = when {

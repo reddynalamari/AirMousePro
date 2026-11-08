@@ -3,6 +3,7 @@ package com.airmousepro.hid
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothClass
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHidDevice
 import android.bluetooth.BluetoothHidDeviceAppSdpSettings
@@ -310,6 +311,8 @@ class HidController(private val context: Context) {
     data class Nearby(val device: BluetoothDevice, val name: String)
 
     var scanning by mutableStateOf(false); private set
+    /** True once a scan has run to the end, so an empty list can say "nothing found" instead of "tap Scan". */
+    var scanFinished by mutableStateOf(false); private set
     var nearby by mutableStateOf(listOf<Nearby>()); private set
     /** Address of the device a pairing request is in progress with. */
     var pairingAddress by mutableStateOf<String?>(null); private set
@@ -324,12 +327,35 @@ class HidController(private val context: Context) {
             when (i.action) {
                 BluetoothDevice.ACTION_FOUND -> {
                     val d = IntentCompat.getParcelableExtra(i, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) ?: return
-                    // Devices with no name are almost all Bluetooth LE background noise, so they are left out.
-                    val name = i.getStringExtra(BluetoothDevice.EXTRA_NAME) ?: d.name ?: return
                     if (d.bondState == BluetoothDevice.BOND_BONDED) return
-                    if (nearby.none { it.device.address == d.address }) nearby = nearby + Nearby(d, name)
+                    val cls = IntentCompat.getParcelableExtra(i, BluetoothDevice.EXTRA_CLASS, BluetoothClass::class.java)
+                    val known = i.getStringExtra(BluetoothDevice.EXTRA_NAME) ?: d.name
+                    note("scan found ${known ?: "(no name yet)"} ${d.address} class=${cls?.majorDeviceClass}")
+                    if (known == null) {
+                        // Bluetooth often reports a device first and its name a moment later. Classic devices announce
+                        // a device class and LE background noise does not, so keep the former and fill the name in
+                        // when it arrives instead of dropping it.
+                        val real = cls != null && cls.majorDeviceClass != BluetoothClass.Device.Major.UNCATEGORIZED
+                        if (!real) return
+                    }
+                    if (nearby.none { it.device.address == d.address }) nearby = nearby + Nearby(d, known ?: "Unnamed device")
                 }
-                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> scanning = false
+                BluetoothDevice.ACTION_NAME_CHANGED -> {
+                    val d = IntentCompat.getParcelableExtra(i, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) ?: return
+                    val name = i.getStringExtra(BluetoothDevice.EXTRA_NAME) ?: return
+                    if (d.bondState == BluetoothDevice.BOND_BONDED) return
+                    note("scan name arrived $name ${d.address}")
+                    nearby = if (nearby.any { it.device.address == d.address }) {
+                        nearby.map { if (it.device.address == d.address) Nearby(d, name) else it }
+                    } else {
+                        nearby + Nearby(d, name)
+                    }
+                }
+                BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                    scanning = false
+                    scanFinished = true
+                    note("scan finished, ${nearby.size} devices")
+                }
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
                     val d = IntentCompat.getParcelableExtra(i, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java) ?: return
                     val now = i.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)
@@ -354,10 +380,14 @@ class HidController(private val context: Context) {
         if (scanReceiverRegistered) return
         val filter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothDevice.ACTION_NAME_CHANGED)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
             addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
         }
-        ContextCompat.registerReceiver(context, scanReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        // Exported on purpose. The Bluetooth service is a separate system app, and a receiver registered as
+        // "not exported" can silently miss its broadcasts on newer Android versions, so the scan found nothing.
+        // This is safe: every action above is a protected system broadcast that ordinary apps cannot send.
+        ContextCompat.registerReceiver(context, scanReceiver, filter, ContextCompat.RECEIVER_EXPORTED)
         scanReceiverRegistered = true
     }
 
@@ -377,9 +407,11 @@ class HidController(private val context: Context) {
         ensureScanReceiver()
         nearby = emptyList()
         pairFailure = null
+        scanFinished = false
         if (a.isDiscovering) a.cancelDiscovery()
         scanning = a.startDiscovery()
         note("startDiscovery returned $scanning")
+        if (!scanning) scanFinished = true
         main.removeCallbacks(scanTimeout)
         main.postDelayed(scanTimeout, 20_000)
     }
@@ -389,6 +421,7 @@ class HidController(private val context: Context) {
         val a = adapter
         if (a != null && hasScanPermission() && hasPermission() && a.isDiscovering) a.cancelDiscovery()
         scanning = false
+        scanFinished = true
     }
 
     /** Starts Android's own pairing for a scanned device. When it succeeds the app connects to it. */

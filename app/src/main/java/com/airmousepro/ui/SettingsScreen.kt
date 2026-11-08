@@ -132,6 +132,7 @@ fun SettingsScreen(hid: HidController, onBack: () -> Unit, onReplaySetup: () -> 
                 SettingRow("Natural scrolling", "Content follows your fingers, like on a phone.", s.naturalScroll) { s.naturalScroll = it }
                 SettingRow("Scroll momentum", "Scrolling keeps gliding after you lift your fingers.", s.inertia) { s.inertia = it }
                 SettingRow("Pinch to zoom", "Sends Ctrl and the mouse wheel.", s.pinchZoom) { s.pinchZoom = it }
+                SettingRow("Two-finger swipe for back and forward", "A quick sideways swipe goes back (left) or forward (right). Slow sideways movement still scrolls.", s.twoFingerNav) { s.twoFingerNav = it }
                 SettingRow("Three-finger swipes", "Task view, show desktop and app switch for your target system.", s.threeFingerGestures) { s.threeFingerGestures = it }
                 SettingRow("Left-handed buttons", "Mirrors the click buttons.", s.leftHanded) { s.leftHanded = it }
                 ChoiceRow("Pointer feel", listOf("Precise", "Balanced", "Fast"), s.accelPreset) { s.accelPreset = it }

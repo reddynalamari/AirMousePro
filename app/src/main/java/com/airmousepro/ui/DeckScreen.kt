@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -81,46 +82,56 @@ fun ShortcutsPane(hid: HidController) {
         return
     }
 
-    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Deck", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            // Target OS decides how "open website/app" shortcuts and gestures are sent.
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(MaterialTheme.colorScheme.surface)
-                    .clickable { settings.os = (settings.os + 1) % OsNames.size }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-            ) { Text(OsNames[settings.os.coerceIn(0, OsNames.lastIndex)], fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+    // Portrait tiles are square. In landscape the page is short and wide, so tiles are low and wide: three rows fit.
+    val compact = isLandscape()
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(if (compact) 110.dp else 92.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        items(store.all, key = { it.id }) { sc ->
+            Tile(
+                icon = IconRegistry.get(sc.icon), label = sc.name, compact = compact,
+                onTap = {
+                    Haptics.tap(view, settings)
+                    runner.run(sc)
+                },
+                onLong = { editing = sc },
+            )
         }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(92.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            items(store.all, key = { it.id }) { sc ->
-                Tile(
-                    icon = IconRegistry.get(sc.icon), label = sc.name,
-                    onTap = {
-                        Haptics.tap(view, settings)
-                        runner.run(sc)
-                    },
-                    onLong = { editing = sc },
-                )
-            }
-            item {
-                Tile(Icons.Rounded.Add, "New", onTap = { editing = Shortcut.create("", "bolt", emptyList()) }, onLong = {}, dim = true)
-            }
+        item {
+            Tile(Icons.Rounded.Add, "New", compact = compact, onTap = { editing = Shortcut.create("", "bolt", emptyList()) }, onLong = {}, dim = true)
         }
     }
 }
 
+/** The target system decides how "open website" and "open app" shortcuts and the three-finger gestures are sent. */
 @Composable
-private fun Tile(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onTap: () -> Unit, onLong: () -> Unit, dim: Boolean = false) {
+fun OsChip() {
+    val settings = LocalContext.current.appSettings
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surface)
+            .clickable { settings.os = (settings.os + 1) % OsNames.size }
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) { Text(OsNames[settings.os.coerceIn(0, OsNames.lastIndex)], fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+}
+
+@Composable
+private fun Tile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    onTap: () -> Unit,
+    onLong: () -> Unit,
+    dim: Boolean = false,
+    compact: Boolean = false,
+) {
     Column(
         Modifier
-            .aspectRatio(1f)
+            .then(if (compact) Modifier.height(86.dp) else Modifier.aspectRatio(1f))
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surface)
             .pointerInput(Unit) { detectTapGestures(onTap = { onTap() }, onLongPress = { onLong() }) }

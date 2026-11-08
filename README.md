@@ -27,7 +27,7 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 | Area | What you get |
 |---|---|
 | **Devices** | Remembers the devices you have connected to and reconnects to the most recent one that is available whenever the app opens. A **Scan** button finds new devices around you and pairs them without leaving the app. |
-| **Trackpad** | Move, tap to click, tap-and-drag, two-finger scroll in both directions, two-finger tap to right-click, three-finger tap to middle-click, pinch to zoom, and three-finger swipes for task view, desktop and app switching. |
+| **Trackpad** | Move, tap to click, tap-and-drag, two-finger scroll in both directions, two-finger tap to right-click, a quick two-finger swipe left or right for back and forward, three-finger tap to middle-click, pinch to zoom, and three-finger swipes for task view, desktop and app switching. |
 | **Air mouse** | The cursor follows where the phone points. Tap anywhere to click, two fingers to right-click, press and hold to drag, swipe to scroll, or use the volume keys as buttons. The pointer holds still while you tap, so clicks land where you aimed. |
 | **Keyboard** | On-screen keyboard with sticky Ctrl, Alt, Win and Shift. Layouts for US, UK, German, French and Spanish. Voice typing, typing your clipboard, and sharing text from any app to type it on the computer. |
 | **Deck** | Your own shortcuts and macros, with ready-made ones for copy, paste, lock, screenshot and more. Can open a website or an app on the computer. |
