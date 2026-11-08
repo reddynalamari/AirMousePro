@@ -27,6 +27,10 @@ val CHANGELOG = listOf(
         "Controlling an Android phone or an iPhone or iPad now uses Home and Back where they exist, and shortcuts that open a website or app use the right search for each. On an iPhone, turn on AssistiveTouch so it shows the pointer.",
     ),
     ChangeEntry(
+        5, ChangeKind.Improved, "bubble", "Steadier air mouse and trackpad swipes",
+        "The air mouse holds still when you do, follows quick sweeps without lag, and takes back the nudge your thumb causes just before a click. On the trackpad, two fingers left and right now reliably go back and forward instead of zooming.",
+    ),
+    ChangeEntry(
         5, ChangeKind.Improved, "gamepad", "Air mouse on a TV",
         "On a TV a quick flick of your wrist presses an arrow key instead of moving a pointer.",
     ),

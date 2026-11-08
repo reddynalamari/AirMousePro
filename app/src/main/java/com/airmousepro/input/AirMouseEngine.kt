@@ -5,6 +5,9 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.os.Handler
+import android.os.HandlerThread
+import android.os.Process
 import android.os.SystemClock
 import android.view.KeyEvent
 import com.airmousepro.data.AppSettings
@@ -49,9 +52,9 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
     private var stillSamples = 0
     private var lastNs = 0L
     private var lastSendNs = 0L
-    private var freezeUntilNs = 0L
-    private var sx = 0f
-    private var sy = 0f
+    @Volatile private var freezeUntilNs = 0L
+    private val filterX = AdaptiveFilter()
+    private val filterY = AdaptiveFilter()
     private var remX = 0f
     private var remY = 0f
 
@@ -64,15 +67,24 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
     private var lastTwistNs = 0L
     private var lastFlickNs = 0L
 
+    private var thread: HandlerThread? = null
+
     fun start() {
-        gyro?.let { sm.registerListener(this, it, SAMPLE_US) }
+        // Sensor samples are handled on their own thread. On the main thread they queue up behind screen drawing, and
+        // the pointer stutters whenever the interface is busy.
+        val t = HandlerThread("air-sensors", Process.THREAD_PRIORITY_URGENT_DISPLAY).also { it.start() }
+        thread = t
+        val h = Handler(t.looper)
+        gyro?.let { sm.registerListener(this, it, SAMPLE_US, h) }
         // TYPE_GRAVITY is the fused "which way is up"; plain accelerometer is the fallback and the shake detector.
-        gravitySensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
-        accel?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME) }
+        gravitySensor?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME, h) }
+        accel?.let { sm.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME, h) }
     }
 
     fun stop() {
         sm.unregisterListener(this)
+        thread?.quitSafely()
+        thread = null
         lastNs = 0L
     }
 
@@ -85,6 +97,30 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         calSum.fill(0f)
         calCount = 0
         calibrateUntilNs = SystemClock.elapsedRealtimeNanos() + 600_000_000L
+    }
+
+    /**
+     * Smooths a turn rate with a filter whose strength depends on how fast the phone is turning (a "1 euro" filter).
+     * Slow and steady: heavy smoothing, so hand tremor does not move the pointer. Fast: almost none, so there is no lag.
+     */
+    private class AdaptiveFilter {
+        private var x = 0f
+        private var dx = 0f
+        private var primed = false
+
+        fun filter(v: Float, dt: Float): Float {
+            if (!primed) { primed = true; x = v; return v }
+            val rate = (v - x) / dt
+            dx += (rate - dx) * alpha(D_CUTOFF, dt)
+            val cutoff = MIN_CUTOFF + BETA * abs(dx)
+            x += (v - x) * alpha(cutoff, dt)
+            return x
+        }
+
+        private fun alpha(cutoff: Float, dt: Float): Float {
+            val tau = 1f / (2f * Math.PI.toFloat() * cutoff)
+            return 1f / (1f + tau / dt)
+        }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -170,16 +206,18 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
             return
         }
 
-        // Heavier smoothing when slow (steady hand), none when fast (flicks stay responsive).
-        // The floor is kept modest: heavier smoothing steadies the hand but adds delay you can feel.
-        val alpha = (0.4f + speed * 0.4f).coerceIn(0.4f, 1f)
-        sx += (yawRate - sx) * alpha
-        sy += (pitchRate - sy) * alpha
-        val ox = if (abs(sx) < DEAD_ZONE) 0f else sx
-        val oy = if (abs(sy) < DEAD_ZONE) 0f else sy
+        // Adaptive smoothing: a steady hand is filtered hard so the pointer sits still, and the filter opens up as soon as
+        // the phone really moves, so quick sweeps do not lag. Then a soft dead zone removes the last of the tremor
+        // without a jump when movement starts.
+        val fx = filterX.filter(yawRate, dt)
+        val fy = filterY.filter(pitchRate, dt)
+        val ox = soft(fx, DEAD_ZONE)
+        val oy = soft(fy, DEAD_ZONE)
 
-        // Slow movement is damped for precision, fast movement is boosted to cross the screen.
-        val boost = 0.55f + 1.1f * min(speed / 3f, 1f)
+        // Slow movement is damped for precision, fast movement is boosted to cross the screen. Only the aiming turn
+        // counts: rolling the wrist must not speed the pointer up.
+        val aim = sqrt(ox * ox + oy * oy)
+        val boost = 0.55f + 1.1f * min(aim / 3f, 1f)
         val gain = BASE_GAIN * settings.airSensitivity * boost
         remX += -ox * dt * gain
         remY += -oy * dt * gain
@@ -196,10 +234,49 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         val iy = remY.roundToInt()
         if (ix != 0 || iy != 0) {
             hid.moveMouse(ix, iy)
+            record(now, ix, iy)
             remX -= ix
             remY -= iy
             lastSendNs = now
         }
+    }
+
+    private fun soft(v: Float, dead: Float): Float = when {
+        v > dead -> v - dead
+        v < -dead -> v + dead
+        else -> 0f
+    }
+
+    // The last moments of pointer movement, so a tap can undo the drift the thumb causes just before it lands.
+    private val trailT = LongArray(TRAIL)
+    private val trailX = IntArray(TRAIL)
+    private val trailY = IntArray(TRAIL)
+    private var trailN = 0
+
+    private fun record(t: Long, x: Int, y: Int) = synchronized(trailT) {
+        val i = trailN % TRAIL
+        trailT[i] = t; trailX[i] = x; trailY[i] = y
+        trailN++
+    }
+
+    /**
+     * Called the instant a finger or a volume key goes down. Reaching for the screen tilts the phone, which nudges the
+     * pointer just before the click. This takes back the last moments of movement so the click lands where you aimed.
+     */
+    fun beginClick() {
+        val now = SystemClock.elapsedRealtimeNanos()
+        var sx = 0
+        var sy = 0
+        synchronized(trailT) {
+            for (k in 1..minOf(trailN, TRAIL)) {
+                val i = (trailN - k) % TRAIL
+                if (now - trailT[i] > REWIND_NS) break
+                sx += trailX[i]; sy += trailY[i]
+            }
+            trailN = 0
+        }
+        // A big movement was a deliberate sweep, not a nudge, so leave it alone.
+        if ((sx != 0 || sy != 0) && abs(sx) <= REWIND_MAX_PX && abs(sy) <= REWIND_MAX_PX) hid.moveMouse(-sx, -sy)
     }
 
     /**
@@ -232,8 +309,14 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         const val SAMPLE_US = 8_000          // ask the gyro for about 125 Hz
         const val MIN_SEND_NS = 7_000_000L   // never send mouse reports faster than about 140 Hz
         const val BASE_GAIN = 1000f          // counts per radian before sensitivity and boost
-        const val DEAD_ZONE = 0.012f         // rad/s, hand tremor at rest
-        const val STILL_RATE = 0.05f
+        const val DEAD_ZONE = 0.035f         // rad/s, hand tremor at rest
+        const val STILL_RATE = 0.09f         // a phone held in a hand is never perfectly still
+        const val MIN_CUTOFF = 3.2f          // Hz: smoothing when the phone is steady
+        const val BETA = 0.4f                // how quickly smoothing opens up as turning speeds up
+        const val D_CUTOFF = 1.5f
+        const val TRAIL = 24
+        const val REWIND_NS = 90_000_000L
+        const val REWIND_MAX_PX = 70
         const val SHAKE_G = 22f              // m/s^2
         const val TWIST_RATE = 7f            // rad/s
         const val FLICK_RATE = 2.4f          // rad/s a wrist flick must reach to press an arrow on a TV

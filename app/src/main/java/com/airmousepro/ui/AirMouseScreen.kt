@@ -115,6 +115,7 @@ fun AirMouseScreen(hid: HidController) {
                     val button = if (e.keyCode == KeyEvent.KEYCODE_VOLUME_UP) HidController.BUTTON_LEFT else HidController.BUTTON_RIGHT
                     if (e.action == KeyEvent.ACTION_DOWN && e.repeatCount == 0) {
                         engine.freezeFor(320)
+                        engine.beginClick()
                         hid.setButton(button, true)
                         Haptics.tap(view, settings)
                     } else if (e.action == KeyEvent.ACTION_UP) {
@@ -234,6 +235,7 @@ private fun AirSurface(
                 awaitEachGesture {
                     val first = awaitFirstDown(requireUnconsumed = false)
                     engine.touching = true
+                    engine.beginClick()
                     val t0 = SystemClock.uptimeMillis()
                     val start = HashMap<PointerId, androidx.compose.ui.geometry.Offset>()
                     start[first.id] = first.position

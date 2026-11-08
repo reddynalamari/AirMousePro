@@ -31,8 +31,9 @@ private const val FLING_MIN_PX_PER_MS = 0.35f
 private const val OS_ANDROID_TV = 3
 private const val OS_ANDROID_PHONE = 4
 private const val OS_IOS = 5
-private const val NAV_WINDOW_MS = 420L      // a back or forward swipe has to be quick
-private const val NAV_DIST_DP = 56f         // and cover at least this much sideways distance
+private const val NAV_WINDOW_MS = 600L      // a back or forward swipe has to be quick, counted from both fingers down
+private const val NAV_DIST_DP = 44f         // and cover at least this much sideways distance
+private const val ZOOM_START_DP = 10f       // fingers must open or close this much before it counts as a pinch
 
 private enum class Mode { Undecided, Scroll, Zoom, Swipe3 }
 
@@ -94,6 +95,12 @@ fun Modifier.trackpad(
         var navY = 0f
         var navDone = false
 
+        // Two-finger bookkeeping, measured from when the second finger lands.
+        var twoInit = false
+        var baseCentroid = Offset.Zero
+        var baseSpread = 0f
+        var twoStart = t0
+
         var swipeInit = false
         var prevMoveTime = t0
         var fingerSpeed = 0f
@@ -142,25 +149,54 @@ fun Modifier.trackpad(
                     val b = pressed[1].position
                     val centroid = Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f)
                     val spread = hypot(a.x - b.x, a.y - b.y)
-                    if (lastSpread == 0f) lastSpread = spread
+                    if (!twoInit) {
+                        // Everything below is measured from the moment both fingers are down.
+                        twoInit = true
+                        baseCentroid = centroid
+                        baseSpread = spread
+                        lastCentroid = centroid
+                        lastSpread = spread
+                        twoStart = lastEventTime
+                    }
                     val dC = centroid - lastCentroid
                     val dS = spread - lastSpread
                     lastCentroid = centroid
                     lastSpread = spread
 
-                    if (mode == Mode.Undecided && maxMoved > slop) {
-                        // Fingers moving apart or together mean zoom; fingers moving together in one direction mean scroll.
-                        mode = if (settings.pinchZoom && abs(dS) > hypot(dC.x, dC.y) * 1.4f && abs(dS) > 1.5f) Mode.Zoom else Mode.Scroll
+                    if (mode == Mode.Undecided) {
+                        // Judge the whole stroke so far, not one jittery event. Both fingers travelling the same way is
+                        // a scroll or a swipe. Zoom needs the fingers to clearly move apart or together while the pair
+                        // itself barely travels. Fingers side by side drift a little in distance during a sideways
+                        // swipe, which is why this is a ratio and not "any change in distance".
+                        val travel = hypot(centroid.x - baseCentroid.x, centroid.y - baseCentroid.y)
+                        val spreadChange = abs(spread - baseSpread)
+                        val zoomLike = settings.pinchZoom && spreadChange > ZOOM_START_DP * density && spreadChange > travel * 1.7f
+                        mode = when {
+                            zoomLike -> Mode.Zoom
+                            travel > slop && spreadChange <= travel * 1.7f -> Mode.Scroll
+                            travel > slop * 3f -> Mode.Scroll
+                            else -> Mode.Undecided
+                        }
+                        if (mode == Mode.Scroll) {
+                            // Catch up on the distance covered while deciding, so scrolling starts without a lag.
+                            // This event's own movement is added by the scroll branch just below.
+                            navX = centroid.x - baseCentroid.x - dC.x
+                            navY = centroid.y - baseCentroid.y - dC.y
+                            scrollAccX = navX * settings.scrollSpeed
+                            scrollAccY = navY * settings.scrollSpeed
+                        } else if (mode == Mode.Zoom) {
+                            zoomAcc = spread - baseSpread - dS
+                        }
                     }
                     when (mode) {
                         Mode.Scroll -> {
                             val s = settings.scrollSpeed
-                            // Back and forward: a quick, mostly sideways two-finger stroke. It is judged on how far the
-                            // fingers have travelled since scrolling began, so slow sideways movement still scrolls.
+                            // Back and forward: a quick, mostly sideways two-finger stroke, judged on how far the fingers
+                            // have travelled since both landed. Slow sideways movement still scrolls.
                             navX += dC.x
                             navY += dC.y
-                            val early = settings.twoFingerNav && lastEventTime - t0 < NAV_WINDOW_MS
-                            if (!navDone && early && abs(navX) > NAV_DIST_DP * density && abs(navX) > abs(navY) * 2.2f) {
+                            val early = settings.twoFingerNav && lastEventTime - twoStart < NAV_WINDOW_MS
+                            if (!navDone && early && abs(navX) > NAV_DIST_DP * density && abs(navX) > abs(navY) * 1.8f) {
                                 navDone = true
                                 scrollAccX = 0f
                                 Haptics.tick(view, settings)
@@ -172,8 +208,10 @@ fun Modifier.trackpad(
                                 scrollAccY += dC.y * s
                                 // Natural: content follows the fingers, so fingers down = wheel up and fingers right = pan left.
                                 val sgn = if (settings.naturalScroll) 1 else -1
-                                val vy = (scrollAccY / PX_PER_NOTCH).toInt()
-                                // Sideways scrolling waits out the short window in which a swipe could still be recognised.
+                                // A mostly sideways stroke might be a back or forward swipe, so nothing scrolls until it
+                                // either fires or the short window closes. Mostly vertical strokes scroll right away.
+                                val sidewaysCandidate = early && abs(navX) > abs(navY)
+                                val vy = if (sidewaysCandidate) 0 else (scrollAccY / PX_PER_NOTCH).toInt()
                                 val vx = if (early) 0 else (scrollAccX / PX_PER_NOTCH).toInt()
                                 if (vy != 0 || vx != 0) {
                                     hid.scroll(vy * sgn, -vx * sgn)
