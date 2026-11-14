@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -200,7 +201,7 @@ class HidController(private val context: Context) {
                     if (!stale) {
                         // A silent auto-reconnect that finds the host switched off is not worth a warning card.
                         if (state == State.Connecting && !autoAttempt) connectFailure = device.name ?: device.address
-                        if (device == host) { host = null; hostName = null }
+                        if (device == host) { host = null; hostName = null; typeGen++; kbDown = false; kbHeld = false }
                         connectingTo = null
                         state = if (hid != null) State.Ready else State.Idle
                         if (device == autoCurrent) main.post { advanceAuto() }
@@ -561,6 +562,134 @@ class HidController(private val context: Context) {
         if (!ok && failedSends++ < 5) note("sendReport id=$id failed")
     }
 
+    // A key press that goes out without its release makes the computer repeat the key for ever. So keys, media keys and
+    // mouse buttons are sent "reliably": a report the Bluetooth stack refuses is tried again, a release far harder than
+    // a press, and a watchdog lets go of anything still down a moment after the last key report.
+    @Volatile private var kbDown = false
+    @Volatile private var kbHeld = false
+    @Volatile private var lastKbNs = 0L
+    private var watchQueued = false
+
+    /** Runs on the sender thread only. Returns whether the report was accepted. */
+    private fun sendReliable(id: Int, data: ByteArray): Boolean {
+        val release = data.all { it == 0.toByte() }
+        val tries = if (release) 60 else 8
+        var ok = false
+        var n = 0
+        while (n++ < tries) {
+            val d = host ?: return false
+            ok = hid?.sendReport(d, id, data) ?: false
+            if (ok) break
+            try { Thread.sleep(if (release) 8 else 5) } catch (_: InterruptedException) { break }
+        }
+        if (!ok && failedSends++ < 5) note("reliable sendReport id=$id failed after $n tries")
+        if (id == HidDescriptor.ID_KEYBOARD) {
+            lastKbNs = System.nanoTime()
+            kbDown = !(release && ok)
+        }
+        return ok
+    }
+
+    /** Runs on the sender thread only: one key press and its release, never split by anything else. */
+    private fun keyComboNow(modifiers: Int, usages: IntArray) {
+        val report = ByteArray(8)
+        report[0] = modifiers.toByte()
+        usages.take(6).forEachIndexed { i, u -> report[2 + i] = u.toByte() }
+        sendReliable(HidDescriptor.ID_KEYBOARD, report)
+        sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+        watchKeys()
+    }
+
+    /** Runs on the sender thread only. */
+    private fun watchKeys() {
+        if (watchQueued) return
+        watchQueued = true
+        sender.schedule({
+            watchQueued = false
+            if (kbDown && !kbHeld) {
+                if (System.nanoTime() - lastKbNs > 250_000_000L) sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8)) else watchKeys()
+            }
+        }, 300, TimeUnit.MILLISECONDS)
+    }
+
+    /** Lets go of every key, media key and mouse button. Used when typing is stopped or the link drops. */
+    fun releaseAll() {
+        kbHeld = false
+        sender.execute {
+            sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+            sendReliable(HidDescriptor.ID_CONSUMER, byteArrayOf(0, 0))
+            mouseButtons = 0
+            sendReliable(HidDescriptor.ID_MOUSE, byteArrayOf(0, 0, 0, 0, 0))
+        }
+    }
+
+    // ---- Typing text ----
+    //
+    // Pasted or dictated text used to be handed to the sender all at once. A few hundred characters is a thousand
+    // reports, far more than the link carries, so the computer kept typing (or repeating a key) long after the paste.
+    // Text now goes through one typist that sends a character, waits until it is really out, then sends the next, so
+    // there is never a backlog and Stop takes effect straight away.
+
+    private val typist: ExecutorService = Executors.newSingleThreadExecutor { r -> Thread(r, "hid-typist").apply { isDaemon = true } }
+    @Volatile private var typeGen = 0
+    /** Characters and keys still waiting to be typed. */
+    var typingPending by mutableIntStateOf(0); private set
+
+    private fun typeJob(count: Int, block: () -> Unit) {
+        val gen = typeGen
+        typingPending += count
+        typist.execute {
+            try {
+                if (gen == typeGen) block()
+            } finally {
+                main.post { typingPending = (typingPending - count).coerceAtLeast(0) }
+            }
+        }
+    }
+
+    /** Types [text] after anything already queued. Characters with no key on this layout are skipped. */
+    fun typeString(text: String) {
+        val gen = typeGen
+        typeJob(text.length) {
+            for (c in text) {
+                if (gen != typeGen || host == null) break
+                typeCharAwait(c)
+                try { Thread.sleep(5) } catch (_: InterruptedException) { break }
+            }
+        }
+    }
+
+    /** One key such as Backspace, in order with typed text. */
+    fun typeKey(usage: Int) {
+        val gen = typeGen
+        typeJob(1) { if (gen == typeGen) runOnSender { keyComboNow(0, intArrayOf(usage)) } }
+    }
+
+    /** Stops whatever is being typed, drops what is queued and lets go of every key. */
+    fun cancelTyping() {
+        typeGen++
+        kbHeld = false
+        sender.execute {
+            sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+            sendReliable(HidDescriptor.ID_CONSUMER, byteArrayOf(0, 0))
+        }
+    }
+
+    /** Sends one character and waits until the Bluetooth stack has taken it. For use off the main thread. */
+    fun typeCharAwait(c: Char): Boolean {
+        val (mod, usage) = KeyMap.forChar(c, layout()) ?: return false
+        runOnSender { keyComboNow(mod, intArrayOf(usage)) }
+        return true
+    }
+
+    private fun runOnSender(block: () -> Unit) {
+        try {
+            sender.submit(block).get(3, TimeUnit.SECONDS)
+        } catch (_: Exception) {
+            // Timed out or interrupted: the report may still go out, but nothing waits for it.
+        }
+    }
+
     // ---- Mouse ----
 
     fun moveMouse(dx: Int, dy: Int, wheel: Int = 0, pan: Int = 0) {
@@ -610,7 +739,7 @@ class HidController(private val context: Context) {
             // Movement made before the press goes out first, so a click lands where it was aimed.
             flushMoves()
             mouseButtons = if (down) mouseButtons or button else mouseButtons and button.inv()
-            sendNow(HidDescriptor.ID_MOUSE, byteArrayOf(mouseButtons.toByte(), 0, 0, 0, 0))
+            sendReliable(HidDescriptor.ID_MOUSE, byteArrayOf(mouseButtons.toByte(), 0, 0, 0, 0))
         }
     }
 
@@ -622,11 +751,8 @@ class HidController(private val context: Context) {
     // ---- Keyboard ----
 
     fun keyCombo(modifiers: Int, vararg usages: Int) {
-        val report = ByteArray(8)
-        report[0] = modifiers.toByte()
-        usages.take(6).forEachIndexed { i, u -> report[2 + i] = u.toByte() }
-        send(HidDescriptor.ID_KEYBOARD, report)
-        send(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+        val u = usages.copyOf()
+        sender.execute { keyComboNow(modifiers, u) }
     }
 
     /** Holds keys down until [keyUp]; used for Ctrl+wheel zoom. */
@@ -634,10 +760,17 @@ class HidController(private val context: Context) {
         val report = ByteArray(8)
         report[0] = modifiers.toByte()
         usages.take(6).forEachIndexed { i, u -> report[2 + i] = u.toByte() }
-        send(HidDescriptor.ID_KEYBOARD, report)
+        kbHeld = true
+        sender.execute { sendReliable(HidDescriptor.ID_KEYBOARD, report) }
     }
 
-    fun keyUp() = send(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+    fun keyUp() {
+        kbHeld = false
+        sender.execute {
+            sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+            watchKeys()
+        }
+    }
 
     fun layout(): KbLayout = KbLayout.values().getOrElse(settings.kbLayout) { KbLayout.US }
 
@@ -651,8 +784,10 @@ class HidController(private val context: Context) {
 
     /** Presses and releases one media key (play, volume, brightness, home and so on). */
     fun consumer(usage: Int) {
-        send(HidDescriptor.ID_CONSUMER, byteArrayOf((usage and 0xFF).toByte(), (usage shr 8).toByte()))
-        send(HidDescriptor.ID_CONSUMER, byteArrayOf(0, 0))
+        sender.execute {
+            sendReliable(HidDescriptor.ID_CONSUMER, byteArrayOf((usage and 0xFF).toByte(), (usage shr 8).toByte()))
+            sendReliable(HidDescriptor.ID_CONSUMER, byteArrayOf(0, 0))
+        }
     }
 
     // ---- Gamepad ----

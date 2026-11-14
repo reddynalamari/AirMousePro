@@ -23,6 +23,14 @@ val CHANGELOG = listOf(
         "The app now tells a Windows PC, Mac, Linux machine, Android TV, Android phone and iPhone apart when you connect. A small switch at the top shows the result and lets you correct it in one tap. Your choice is remembered for that device.",
     ),
     ChangeEntry(
+        5, ChangeKind.Improved, "shield", "No more runaway keys",
+        "Pasted and dictated text is now typed at the speed Bluetooth can carry, and every key release is retried until it goes through. A Stop button replaces the paste button while text is still going out.",
+    ),
+    ChangeEntry(
+        5, ChangeKind.Improved, "gamepad", "Better for Apple devices",
+        "Shortcuts and modifier keys use Cmd and Option for iPhone, iPad and Mac, two-finger swipes go back and forward in Safari, and the Devices page has iPhone and iPad pairing steps.",
+    ),
+    ChangeEntry(
         5, ChangeKind.Improved, "gamepad", "Works with phones and tablets",
         "Controlling an Android phone or an iPhone or iPad now uses Home and Back where they exist, and shortcuts that open a website or app use the right search for each. On an iPhone, turn on AssistiveTouch so it shows the pointer.",
     ),

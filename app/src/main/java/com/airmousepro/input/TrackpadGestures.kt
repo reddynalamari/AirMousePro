@@ -330,9 +330,10 @@ fun navigateHistory(hid: HidController, os: Int, forward: Boolean) {
     when (os) {
         // macOS: Cmd+[ and Cmd+] (US layout positions of the bracket keys).
         1 -> hid.keyCombo(Mod.GUI, if (forward) 0x30 else 0x2F)
-        // TVs and Android phones have a Back key. iPhones have no back or forward over Bluetooth.
+        // TVs and Android phones have a Back key.
         OS_ANDROID_TV, OS_ANDROID_PHONE -> if (!forward) hid.consumer(Consumer.BACK)
-        OS_IOS -> {}
+        // iPhone and iPad: Safari and Files take Cmd+[ and Cmd+] from a hardware keyboard.
+        OS_IOS -> hid.keyCombo(Mod.GUI, if (forward) 0x30 else 0x2F)
         else -> hid.keyCombo(Mod.ALT, if (forward) Key.RIGHT else Key.LEFT)
     }
 }
@@ -342,11 +343,20 @@ enum class SwipeDir { Up, Down, Left, Right }
 /** Three-finger swipes mapped to the target operating system's own gestures. */
 fun threeFingerAction(hid: HidController, os: Int, dir: SwipeDir) {
     if (os == OS_ANDROID_TV) return
-    // Phones: swipe up for Home, down for Back. Sideways has no phone equivalent.
-    if (os == OS_ANDROID_PHONE || os == OS_IOS) {
+    // iPhone and iPad: up is Home, down opens Spotlight search, sideways is the app switcher (Cmd+Tab).
+    if (os == OS_IOS) {
         when (dir) {
             SwipeDir.Up -> hid.consumer(Consumer.HOME)
-            SwipeDir.Down -> if (os == OS_ANDROID_PHONE) hid.consumer(Consumer.BACK)
+            SwipeDir.Down -> hid.keyCombo(Mod.GUI, Key.SPACE)
+            SwipeDir.Left, SwipeDir.Right -> hid.keyCombo(Mod.GUI, Key.TAB)
+        }
+        return
+    }
+    // Android phones: swipe up for Home, down for Back. Sideways has no phone equivalent.
+    if (os == OS_ANDROID_PHONE) {
+        when (dir) {
+            SwipeDir.Up -> hid.consumer(Consumer.HOME)
+            SwipeDir.Down -> hid.consumer(Consumer.BACK)
             else -> {}
         }
         return

@@ -186,24 +186,27 @@ class MacroRunner(private val hid: HidController, private val scope: CoroutineSc
     /** Types plain text on the host, one key at a time, using the selected keyboard layout. */
     fun typeText(text: String) {
         job?.cancel()
-        job = scope.launch(Dispatchers.Default) {
-            for (c in text) {
-                hid.typeChar(c)
-                delay(14)
-            }
-        }
+        hid.cancelTyping()
+        hid.typeString(text)
+    }
+
+    /** Stops a macro or typing in progress and lets go of every key. */
+    fun stop() {
+        job?.cancel()
+        hid.cancelTyping()
     }
 
     fun run(sc: Shortcut) {
         job?.cancel()
+        hid.cancelTyping()
         job = scope.launch(Dispatchers.Default) {
             for (step in sc.steps) {
                 when (step) {
                     is Step.Combo -> hid.keyCombo(step.mods, *step.keys.toIntArray())
                     is Step.Text -> for (c in step.text) {
-                        // Characters outside US ASCII have no key code and are skipped.
-                        hid.typeChar(c)
-                        delay(14)
+                        // Characters outside US ASCII have no key code and are skipped. Each one waits until it is out.
+                        hid.typeCharAwait(c)
+                        delay(5)
                     }
                     is Step.Media -> hid.consumer(step.usage)
                     is Step.Wait -> delay(step.ms.toLong())

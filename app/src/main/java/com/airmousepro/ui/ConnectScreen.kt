@@ -146,9 +146,16 @@ fun ConnectScreen(hid: HidController, onRetry: () -> Unit, onScan: () -> Unit) {
                 item {
                     Card(tint = StatusOrange.copy(alpha = 0.16f)) {
                         Text("$name did not accept the connection", fontWeight = FontWeight.SemiBold)
+                        val apple = HidController.detectOs(name, null, null) == 5
                         Text(
-                            "This usually means it was paired before AirMouse was open. Remove this phone from $name's Bluetooth list, " +
-                                "remove $name from this phone's list, then pair again while this app is open.",
+                            if (apple) {
+                                // iPhones and iPads do not take a connection started from the Android side. They connect to the accessory.
+                                "iPhones and iPads connect from their own side. On $name, open Settings, then Bluetooth, and tap this phone's name " +
+                                    "under My Devices. If it is not there, pair first using the steps below."
+                            } else {
+                                "This usually means it was paired before AirMouse was open. Remove this phone from $name's Bluetooth list, " +
+                                    "remove $name from this phone's list, then pair again while this app is open."
+                            },
                             fontSize = 14.sp,
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -274,6 +281,7 @@ fun ConnectScreen(hid: HidController, onRetry: () -> Unit, onScan: () -> Unit) {
             }
 
             item { PairCard(hid) }
+            item { AppleCard() }
         }
     }
 
@@ -424,6 +432,17 @@ private fun PairCard(hid: HidController) {
             }) { Text("Make discoverable") }
             OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }) { Text("Bluetooth settings") }
         }
+    }
+}
+
+/** Steps that are different on an iPhone or iPad: it connects from its side, and a pointer needs AssistiveTouch. */
+@Composable
+private fun AppleCard() {
+    Card {
+        Text("iPhone or iPad", fontWeight = FontWeight.SemiBold)
+        Step(1, "Tap Make discoverable above. On the iPhone open Settings, then Bluetooth, and tap this phone's name.")
+        Step(2, "Accept the code on both. If this phone does not connect by itself, tap its name again on the iPhone.")
+        Step(3, "The keyboard works at once. For the mouse, turn on Settings, Accessibility, Touch, AssistiveTouch, then open Devices there and connect this phone.")
     }
 }
 

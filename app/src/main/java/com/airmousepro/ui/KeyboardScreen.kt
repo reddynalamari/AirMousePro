@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.KeyboardCapslock
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.SpaceBar
+import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -117,7 +118,10 @@ fun KeyboardScreen(hid: HidController) {
                     Toast.makeText(ctx, "No speech recogniser on this phone", Toast.LENGTH_SHORT).show()
                 }
             }
-            ToolButton(Icons.Rounded.ContentPaste, "Type clipboard") {
+            if (hid.typingPending > 0) {
+                // While text is still going out, the paste button becomes Stop. One tap drops what is queued.
+                ToolButton(Icons.Rounded.Stop, "Stop typing") { ctx.app.macros.stop() }
+            } else ToolButton(Icons.Rounded.ContentPaste, "Type clipboard") {
                 val cm = ctx.getSystemService(ClipboardManager::class.java)
                 val clip = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(ctx)?.toString()
                 if (clip.isNullOrEmpty()) {
@@ -147,9 +151,10 @@ fun KeyboardScreen(hid: HidController) {
                 onValueChange = { new ->
                     // Mirror edits at the end of the field to the host; backspace and typed chars are sent live.
                     if (new.length > text.length && new.startsWith(text)) {
-                        new.substring(text.length).forEach { hid.typeChar(it) }
+                        // Queued, so a pasted block is typed at the speed the link can carry.
+                        hid.typeString(new.substring(text.length))
                     } else if (new.length < text.length && text.startsWith(new)) {
-                        repeat(text.length - new.length) { hid.keyCombo(0, Key.BACKSPACE) }
+                        repeat(text.length - new.length) { hid.typeKey(Key.BACKSPACE) }
                     }
                     text = if (new.length > 200) new.takeLast(100) else new
                 },
@@ -247,6 +252,7 @@ private fun OnScreenKeyboard(hid: HidController) {
     var symbols by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val layout = hid.layout()
+    val apple = hid.target == 1 || hid.target == 5
 
     fun mods() = once or locked
 
@@ -279,8 +285,8 @@ private fun OnScreenKeyboard(hid: HidController) {
             KeyCap(text = "Esc", onPress = { tick(); sendKey(Key.ESC) })
             KeyCap(text = "Tab", onPress = { tick(); sendKey(Key.TAB) })
             KeyCap(text = "Ctrl", active = mods() and Mod.CTRL != 0, onPress = { tick(); toggle(Mod.CTRL) })
-            KeyCap(text = "Alt", active = mods() and Mod.ALT != 0, onPress = { tick(); toggle(Mod.ALT) })
-            KeyCap(text = "Win", active = mods() and Mod.GUI != 0, onPress = { tick(); toggle(Mod.GUI) })
+            KeyCap(text = if (apple) "Opt" else "Alt", active = mods() and Mod.ALT != 0, onPress = { tick(); toggle(Mod.ALT) })
+            KeyCap(text = if (apple) "Cmd" else "Win", active = mods() and Mod.GUI != 0, onPress = { tick(); toggle(Mod.GUI) })
             KeyCap(icon = Icons.Rounded.ArrowBack, repeat = true, scope = scope, onPress = { tick(); sendKey(Key.LEFT) })
             KeyCap(icon = Icons.Rounded.ArrowUpward, repeat = true, scope = scope, onPress = { tick(); sendKey(Key.UP) })
             KeyCap(icon = Icons.Rounded.ArrowDownward, repeat = true, scope = scope, onPress = { tick(); sendKey(Key.DOWN) })
@@ -389,19 +395,34 @@ private fun NavigationSection(hid: HidController) = Section("Navigate") {
     KeyBtn("Del") { hid.keyCombo(0, Key.DELETE) }
 }
 
+/** A labelled shortcut: modifiers plus an optional key (0 means the modifier alone). */
+private class KeyShortcut(val label: String, val mods: Int, val key: Int = 0)
+
+/** The shortcuts that mean something on the device being controlled. Apple devices use Cmd where others use Ctrl. */
+private fun shortcutsFor(target: Int): List<KeyShortcut> = if (target == 1 || target == 5) {
+    listOf(
+        KeyShortcut("Cmd+Tab", Mod.GUI, Key.TAB), KeyShortcut("Cmd+Space", Mod.GUI, Key.SPACE),
+        KeyShortcut("Cmd+C", Mod.GUI, 0x06), KeyShortcut("Cmd+V", Mod.GUI, 0x19),
+        KeyShortcut("Cmd+X", Mod.GUI, 0x1B), KeyShortcut("Cmd+Z", Mod.GUI, 0x1D),
+        KeyShortcut("Cmd+A", Mod.GUI, 0x04), KeyShortcut("Cmd+W", Mod.GUI, 0x1A),
+        KeyShortcut("Cmd+Q", Mod.GUI, 0x14), KeyShortcut("Cmd+H", Mod.GUI, 0x0B),
+        KeyShortcut("Cmd+Shift+3", Mod.GUI or Mod.SHIFT, 0x20),
+    )
+} else {
+    listOf(
+        KeyShortcut("Win", Mod.GUI), KeyShortcut("Alt+Tab", Mod.ALT, Key.TAB), KeyShortcut("Alt+F4", Mod.ALT, Key.f(4)),
+        KeyShortcut("Ctrl+C", Mod.CTRL, 0x06), KeyShortcut("Ctrl+V", Mod.CTRL, 0x19), KeyShortcut("Ctrl+X", Mod.CTRL, 0x1B),
+        KeyShortcut("Ctrl+Z", Mod.CTRL, 0x1D), KeyShortcut("Ctrl+A", Mod.CTRL, 0x04),
+        KeyShortcut("Win+D", Mod.GUI, 0x07), KeyShortcut("Win+L", Mod.GUI, 0x0F),
+        KeyShortcut("Ctrl+Alt+Del", Mod.CTRL or Mod.ALT, Key.DELETE),
+    )
+}
+
+private fun HidController.press(s: KeyShortcut) = if (s.key == 0) keyCombo(s.mods) else keyCombo(s.mods, s.key)
+
 @Composable
 private fun ShortcutsSection(hid: HidController) = Section("Shortcuts") {
-    KeyBtn("Win") { hid.keyCombo(Mod.GUI) }
-    KeyBtn("Alt+Tab") { hid.keyCombo(Mod.ALT, Key.TAB) }
-    KeyBtn("Alt+F4") { hid.keyCombo(Mod.ALT, Key.f(4)) }
-    KeyBtn("Ctrl+C") { hid.keyCombo(Mod.CTRL, 0x06) }
-    KeyBtn("Ctrl+V") { hid.keyCombo(Mod.CTRL, 0x19) }
-    KeyBtn("Ctrl+X") { hid.keyCombo(Mod.CTRL, 0x1B) }
-    KeyBtn("Ctrl+Z") { hid.keyCombo(Mod.CTRL, 0x1D) }
-    KeyBtn("Ctrl+A") { hid.keyCombo(Mod.CTRL, 0x04) }
-    KeyBtn("Win+D") { hid.keyCombo(Mod.GUI, 0x07) }
-    KeyBtn("Win+L") { hid.keyCombo(Mod.GUI, 0x0F) }
-    KeyBtn("Ctrl+Alt+Del") { hid.keyCombo(Mod.CTRL or Mod.ALT, Key.DELETE) }
+    shortcutsFor(hid.target).forEach { s -> KeyBtn(s.label) { hid.press(s) } }
 }
 
 @Composable
@@ -432,17 +453,7 @@ private fun ExtraKeysPane(hid: HidController) {
             SlimKey("Del") { hid.keyCombo(0, Key.DELETE) }
         }
         Group("Shortcuts", 1.5f) {
-            SlimKey("Win") { hid.keyCombo(Mod.GUI) }
-            SlimKey("Alt+Tab") { hid.keyCombo(Mod.ALT, Key.TAB) }
-            SlimKey("Alt+F4") { hid.keyCombo(Mod.ALT, Key.f(4)) }
-            SlimKey("Ctrl+C") { hid.keyCombo(Mod.CTRL, 0x06) }
-            SlimKey("Ctrl+V") { hid.keyCombo(Mod.CTRL, 0x19) }
-            SlimKey("Ctrl+X") { hid.keyCombo(Mod.CTRL, 0x1B) }
-            SlimKey("Ctrl+Z") { hid.keyCombo(Mod.CTRL, 0x1D) }
-            SlimKey("Ctrl+A") { hid.keyCombo(Mod.CTRL, 0x04) }
-            SlimKey("Win+D") { hid.keyCombo(Mod.GUI, 0x07) }
-            SlimKey("Win+L") { hid.keyCombo(Mod.GUI, 0x0F) }
-            SlimKey("Ctrl+Alt+Del") { hid.keyCombo(Mod.CTRL or Mod.ALT, Key.DELETE) }
+            shortcutsFor(hid.target).forEach { s -> SlimKey(s.label) { hid.press(s) } }
         }
         Group("Function keys", 1f) {
             for (n in 1..12) SlimKey("F$n") { hid.keyCombo(0, Key.f(n)) }

@@ -26,16 +26,12 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 
 | Area | What you get |
 |---|---|
-| **Devices** | Remembers the devices you have connected to and reconnects to the most recent one that is available whenever the app opens. A **Scan** button finds new devices around you and pairs them without leaving the app. |
-| **Trackpad** | Move, tap to click, tap-and-drag, two-finger scroll in both directions, two-finger tap to right-click, a quick two-finger swipe left or right for back and forward, three-finger tap to middle-click, pinch to zoom, and three-finger swipes for task view, desktop and app switching. |
-| **TV mode** | When the connected device is a TV, the trackpad turns into a remote: swipe to move the highlight, tap for OK, press and hold for a long press, two-finger tap for Back, three-finger tap for Home, and two fingers up or down for volume. The air mouse turns into flick-to-navigate. It is chosen from the switch at the top of the app. |
-| **Any device** | The app detects whether it is connected to a Windows PC, Mac, Linux machine, Android TV, Android phone or iPhone or iPad, and adapts its gestures and shortcuts. If it guesses wrong, change it with the switch at the top; the choice is remembered for that device. An iPhone or iPad needs AssistiveTouch turned on to show the pointer. |
-| **Air mouse** | The cursor follows where the phone points. Tap anywhere to click, two fingers to right-click, press and hold to drag, swipe to scroll, or use the volume keys as buttons. The pointer holds still while you tap, so clicks land where you aimed. |
-| **Keyboard** | On-screen keyboard with sticky Ctrl, Alt, Win and Shift. Layouts for US, UK, German, French and Spanish. Voice typing, typing your clipboard, and sharing text from any app to type it on the computer. |
-| **Deck** | Your own shortcuts and macros, with ready-made ones for copy, paste, lock, screenshot and more. Can open a website or an app on the computer. |
-| **Present** | A slide clicker with a timer, black and white screen, and a laser that follows the phone. |
-| **Gamepad** | A Bluetooth gamepad with two sticks, D-pad, buttons, triggers and optional gyro aiming. A **Keys** switch turns the same controls into keyboard and mouse input (WASD, mouse look, trigger clicks) for games that ignore generic gamepads. |
-| **Remote** | D-pad, media keys, volume and brightness. |
+| **Devices** | Connection status, recent and paired devices, a Scan button for new ones, and pairing steps for computers, TVs and iPhones or iPads. |
+| **Mouse** | Switch between the **Touchpad** and the **Air mouse**. On a TV both turn into a remote. |
+| **Keys** | On-screen keyboard, text mode, voice typing and clipboard typing, with a Stop button while text is going out. In landscape the trackpad sits above the keyboard, and a **More** tab holds navigation, shortcuts and function keys. |
+| **Deck** | Switch between **Shortcuts**, **Present** and **Gamepad**. |
+| **Remote** | D-pad, media, volume and brightness. |
+| **Top switch** | The small switch beside the gear shows what you are controlling (Windows, Mac, Linux, Android TV, Android phone, iPhone or iPad) and changes it in one tap. |
 | **Quick menu** | A floating bubble that appears over your other apps while this app is in the background. Tap it for a rotary dial with your favourite actions, including volume and brightness knobs. Double-tap to open the app, drag it to the X to remove it. |
 | **Guides** | A short animated setup guide on first launch, and after every update a tour that covers only what was added, improved or removed. Both can be replayed from Settings. |
 | **Make it yours** | Dark, AMOLED, light or system theme, five accent colours, adjustable haptics, rotation that follows your phone's auto-rotate switch, and landscape layouts. |
@@ -45,11 +41,12 @@ It is developed and tested on **Windows 11**. macOS, Linux, ChromeOS and Android
 
 | Screen | What it is for |
 |---|---|
-| **Devices** | Connection status, recent and paired devices, and pairing help. |
-| **Mouse** | Switch between the **Touchpad** and the **Air mouse**. |
-| **Keys** | On-screen keyboard, text mode, voice typing, shortcut and function keys. |
+| **Devices** | Connection status, recent and paired devices, a Scan button for new ones, and pairing steps for computers, TVs and iPhones or iPads. |
+| **Mouse** | Switch between the **Touchpad** and the **Air mouse**. On a TV both turn into a remote. |
+| **Keys** | On-screen keyboard, text mode, voice typing and clipboard typing, with a Stop button while text is going out. In landscape the trackpad sits above the keyboard, and a **More** tab holds navigation, shortcuts and function keys. |
 | **Deck** | Switch between **Shortcuts**, **Present** and **Gamepad**. |
 | **Remote** | D-pad, media, volume and brightness. |
+| **Top switch** | The small switch beside the gear shows what you are controlling (Windows, Mac, Linux, Android TV, Android phone, iPhone or iPad) and changes it in one tap. |
 | **Settings** | The gear icon at the top. Appearance, touchpad, air mouse, keyboard, connection, quick menu, guides, updates, backup and about. |
 
 ## Quick start
