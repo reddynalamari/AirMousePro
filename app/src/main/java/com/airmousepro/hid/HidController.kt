@@ -73,6 +73,7 @@ class HidController(private val context: Context) {
         val found = saved ?: detectOs(d.name, c?.majorDeviceClass, c?.deviceClass)
         // Unknown device: keep the last computer choice, but never carry a TV over to something that is not one.
         settings.os = found ?: settings.os.takeIf { it != 3 } ?: 0
+        note("target for ${d.name} ${d.address}: saved=${saved ?: "none"} detected=${detectOs(d.name, c?.majorDeviceClass, c?.deviceClass) ?: "unknown"} class=${c?.majorDeviceClass}/${c?.deviceClass} -> ${settings.os}")
     }
 
     /** Address of the connected device, or null. Read it together with [hostName] so Compose sees changes. */
@@ -119,6 +120,10 @@ class HidController(private val context: Context) {
 
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private var failedSends = 0
+    @Volatile private var sendFailures = 0
+    @Volatile private var retriesUsed = 0
+    @Volatile private var watchdogReleases = 0
+    @Volatile private var charsTyped = 0
 
     @Synchronized
     private fun note(msg: String) {
@@ -138,6 +143,16 @@ class HidController(private val context: Context) {
         appendLine("Bluetooth permission: ${hasPermission()}, adapter on: ${bluetoothEnabled()}")
         appendLine("State: $state, host: ${hostName ?: "-"}, proxy: ${hid != null}")
         appendLine("Paired: " + pairedDevices().joinToString { "${it.name} ${it.address} bond=${it.bondState}" })
+        appendLine("Connected to: ${hostName ?: "-"} (${host?.address ?: "-"}), target=$target, tvMode=$tvMode")
+        appendLine("Registration: attempts=$regAttempts pending=$regPending")
+        appendLine("Reports: refused=$sendFailures, retried=$retriesUsed, watchdog releases=$watchdogReleases, characters typed=$charsTyped, queued=$typingPending")
+        appendLine("Gamepad reports: sent=$gamepadSent failed=$gamepadFailed")
+        appendLine("Keys down now: keyboard=$kbDown held-on-purpose=$kbHeld, mouse buttons=$mouseButtons")
+        appendLine("Settings: layout=${layout().label}, orientation=${settings.orientation}, tapToClick=${settings.tapToClick}, naturalScroll=${settings.naturalScroll}, pinchZoom=${settings.pinchZoom}, twoFingerNav=${settings.twoFingerNav}, threeFinger=${settings.threeFingerGestures}, pointer=${settings.accelPreset}, padSpeed=${settings.padSpeed}, air=${settings.airSensitivity}, edge=${settings.airPointing}, gamepadKeys=${settings.gamepadKeys}, autoReconnect=${settings.autoReconnect}")
+        appendLine("Recent devices: " + settings.history().joinToString { "${it.first}" })
+        appendLine("Nearby scan: scanning=$scanning, found=${nearby.size}")
+        appendLine("Sensors: gyroscope=${context.getSystemService(android.hardware.SensorManager::class.java)?.getDefaultSensor(android.hardware.Sensor.TYPE_GYROSCOPE) != null}, gravity=${context.getSystemService(android.hardware.SensorManager::class.java)?.getDefaultSensor(android.hardware.Sensor.TYPE_GRAVITY) != null}")
+        appendLine("Display: ${context.resources.displayMetrics.widthPixels}x${context.resources.displayMetrics.heightPixels} @${context.resources.displayMetrics.densityDpi}dpi")
     }
 
     private val callback = object : BluetoothHidDevice.Callback() {
@@ -167,9 +182,13 @@ class HidController(private val context: Context) {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
             note("app registered=$registered plugged=${pluggedDevice?.address}")
             if (registered) {
+                regAttempts = 0
+                main.removeCallbacks(registerRunnable)
+                regPending = false
                 if (state != State.Connected) state = State.Ready
                 startAutoConnect()
-            } else {
+            } else if (!regPending && state != State.Registering) {
+                // Not a failure while registration is still being retried: the old registration is just going away.
                 state = State.Failed
             }
         }
@@ -211,6 +230,31 @@ class HidController(private val context: Context) {
         }
     }
 
+    private var regSdp: BluetoothHidDeviceAppSdpSettings? = null
+    private var regAttempts = 0
+    private var regPending = false
+    private val registerRunnable: Runnable = Runnable {
+        regPending = false
+        val h = hid ?: return@Runnable
+        val sdp = regSdp ?: return@Runnable
+        val ok = h.registerApp(sdp, null, null, executor, callback)
+        note("registerApp() returned $ok")
+        if (!ok) {
+            if (++regAttempts <= 4) {
+                h.unregisterApp()
+                scheduleRegister(700)
+            } else {
+                state = State.Failed
+            }
+        }
+    }
+
+    private fun scheduleRegister(delayMs: Long) {
+        regPending = true
+        main.removeCallbacks(registerRunnable)
+        main.postDelayed(registerRunnable, delayMs)
+    }
+
     private val serviceListener = object : BluetoothProfile.ServiceListener {
         override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
             val h = proxy as BluetoothHidDevice
@@ -220,11 +264,13 @@ class HidController(private val context: Context) {
                 "AirMouse Pro", "Phone mouse and keyboard", "AirMousePro",
                 BluetoothHidDevice.SUBCLASS1_COMBO, HidDescriptor.bytes,
             )
-            // Clear any registration left behind by a previous run of this app.
+            // Clear any registration left behind by a previous run of this app. The system tears that down in the
+            // background, and registering again before it has finished is refused, so registration waits a moment
+            // and is retried a few times instead of being declared failed on the first refusal.
+            regSdp = sdp
+            regAttempts = 0
             h.unregisterApp()
-            val ok = h.registerApp(sdp, null, null, executor, callback)
-            note("registerApp() returned $ok")
-            if (!ok) state = State.Failed
+            scheduleRegister(350)
         }
 
         override fun onServiceDisconnected(profile: Int) {
@@ -483,10 +529,13 @@ class HidController(private val context: Context) {
     /** Drops the current registration and registers again, without reconnecting to recent devices. */
     fun restart() {
         stop(restoreName = false)
-        start(autoConnect = false)
+        // Give the Bluetooth service a moment to finish dropping the old registration before asking for a new one.
+        main.postDelayed({ start(autoConnect = false) }, 600)
     }
 
     fun stop(restoreName: Boolean = true) {
+        main.removeCallbacks(registerRunnable)
+        regPending = false
         if (restoreName) restoreName()
         hid?.let { h ->
             h.unregisterApp()
@@ -582,7 +631,12 @@ class HidController(private val context: Context) {
             if (ok) break
             try { Thread.sleep(if (release) 8 else 5) } catch (_: InterruptedException) { break }
         }
-        if (!ok && failedSends++ < 5) note("reliable sendReport id=$id failed after $n tries")
+        if (n > 1) {
+            retriesUsed++
+            // Retries are the early sign of a stuck key, so they are logged, but not every one on a long paste.
+            if (retriesUsed <= 30 || retriesUsed % 50 == 0) note("report id=$id ${if (release) "release" else "press"}: ${if (ok) "accepted" else "REFUSED"} after $n tries (retries so far $retriesUsed)")
+        }
+        if (!ok) { sendFailures++; if (sendFailures <= 20) note("sendReport id=$id failed after $n tries") }
         if (id == HidDescriptor.ID_KEYBOARD) {
             lastKbNs = System.nanoTime()
             kbDown = !(release && ok)
@@ -607,7 +661,13 @@ class HidController(private val context: Context) {
         sender.schedule({
             watchQueued = false
             if (kbDown && !kbHeld) {
-                if (System.nanoTime() - lastKbNs > 250_000_000L) sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8)) else watchKeys()
+                if (System.nanoTime() - lastKbNs > 250_000_000L) {
+                    watchdogReleases++
+                    note("watchdog: a key was still down, released it (times so far $watchdogReleases)")
+                    sendReliable(HidDescriptor.ID_KEYBOARD, ByteArray(8))
+                } else {
+                    watchKeys()
+                }
             }
         }, 300, TimeUnit.MILLISECONDS)
     }
@@ -649,6 +709,7 @@ class HidController(private val context: Context) {
 
     /** Types [text] after anything already queued. Characters with no key on this layout are skipped. */
     fun typeString(text: String) {
+        note("typing ${text.length} characters (${typingPending} already queued)")
         val gen = typeGen
         typeJob(text.length) {
             for (c in text) {
@@ -667,6 +728,7 @@ class HidController(private val context: Context) {
 
     /** Stops whatever is being typed, drops what is queued and lets go of every key. */
     fun cancelTyping() {
+        if (typingPending > 0) note("typing cancelled with $typingPending still queued")
         typeGen++
         kbHeld = false
         sender.execute {
@@ -679,6 +741,7 @@ class HidController(private val context: Context) {
     fun typeCharAwait(c: Char): Boolean {
         val (mod, usage) = KeyMap.forChar(c, layout()) ?: return false
         runOnSender { keyComboNow(mod, intArrayOf(usage)) }
+        charsTyped++
         return true
     }
 
