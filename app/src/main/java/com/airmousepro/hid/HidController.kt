@@ -452,8 +452,16 @@ class HidController(private val context: Context) {
                     if (now == BluetoothDevice.BOND_BONDED) {
                         pairingAddress = null
                         nearby = nearby.filterNot { it.device.address == d.address }
-                        // The pairing was started from this app, so carry on and connect to it.
-                        if (state == State.Ready) connect(d)
+                        // The pairing was started from this app. Windows and most other hosts connect to the new device
+                        // themselves the moment pairing ends. If this phone also starts a connection at that instant the
+                        // two collide and both fail, and Windows then marks its keyboard driver for this phone as broken.
+                        // So wait for the host first, and only start the connection from here if it has not.
+                        main.postDelayed({
+                            if (state == State.Ready) {
+                                note("host did not connect after pairing, connecting from the phone")
+                                connect(d)
+                            }
+                        }, POST_PAIR_WAIT_MS)
                     } else if (now == BluetoothDevice.BOND_NONE && before == BluetoothDevice.BOND_BONDING) {
                         pairingAddress = null
                         pairFailure = d.name ?: d.address
@@ -960,6 +968,7 @@ class HidController(private val context: Context) {
         /** Shortest gap between merged pointer or gamepad reports: about 110 a second, which a Bluetooth link can carry. */
         private const val MOVE_GAP_NS = 9_000_000L
         private const val AUTO_TIMEOUT_MS = 9_000L
+        private const val POST_PAIR_WAIT_MS = 12_000L
         private const val NAME_PREFIX = "AirMouse - "
         private const val KEY_RENAME = "show_as_airmouse"
         private const val KEY_ORIGINAL = "original_bt_name"
