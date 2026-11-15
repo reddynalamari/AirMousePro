@@ -181,9 +181,11 @@ class HidController(private val context: Context) {
 
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
             note("app registered=$registered plugged=${pluggedDevice?.address}")
+            appRegistered = registered
             if (registered) {
                 regAttempts = 0
                 main.removeCallbacks(registerRunnable)
+                main.removeCallbacks(registerCheck)
                 regPending = false
                 if (state != State.Connected) state = State.Ready
                 startAutoConnect()
@@ -230,6 +232,8 @@ class HidController(private val context: Context) {
         }
     }
 
+    /** The last registration state the Bluetooth service reported. Its return value from registerApp() is not trusted. */
+    @Volatile private var appRegistered = false
     private var regSdp: BluetoothHidDeviceAppSdpSettings? = null
     private var regAttempts = 0
     private var regPending = false
@@ -239,13 +243,22 @@ class HidController(private val context: Context) {
         val sdp = regSdp ?: return@Runnable
         val ok = h.registerApp(sdp, null, null, executor, callback)
         note("registerApp() returned $ok")
-        if (!ok) {
-            if (++regAttempts <= 4) {
-                h.unregisterApp()
-                scheduleRegister(700)
-            } else {
-                state = State.Failed
-            }
+        // Its return value is not reliable: the Bluetooth service has answered false while registering fine. Calling
+        // unregisterApp() after such a false made the service forget which app owned the registration, and every
+        // later connect() was then refused with "caller UID doesn't match registered user UID". So a false is never
+        // acted on. Only the confirmation from the service counts, and only if none comes is registration redone.
+        main.removeCallbacks(registerCheck)
+        main.postDelayed(registerCheck, 3000)
+    }
+
+    private val registerCheck: Runnable = Runnable {
+        if (appRegistered || hid == null) return@Runnable
+        if (++regAttempts <= 3) {
+            note("no registration confirmation yet, registering again (attempt ${regAttempts + 1})")
+            hid?.unregisterApp()
+            scheduleRegister(900)
+        } else {
+            state = State.Failed
         }
     }
 
@@ -269,8 +282,9 @@ class HidController(private val context: Context) {
             // and is retried a few times instead of being declared failed on the first refusal.
             regSdp = sdp
             regAttempts = 0
+            appRegistered = false
             h.unregisterApp()
-            scheduleRegister(350)
+            scheduleRegister(700)
         }
 
         override fun onServiceDisconnected(profile: Int) {
@@ -535,7 +549,9 @@ class HidController(private val context: Context) {
 
     fun stop(restoreName: Boolean = true) {
         main.removeCallbacks(registerRunnable)
+        main.removeCallbacks(registerCheck)
         regPending = false
+        appRegistered = false
         if (restoreName) restoreName()
         hid?.let { h ->
             h.unregisterApp()
@@ -565,9 +581,36 @@ class HidController(private val context: Context) {
         connectingTo = device
         connectFailure = null
         state = State.Connecting
+        attemptConnect(device, 0)
+    }
+
+    /**
+     * The Bluetooth stack sometimes answers "no" to connect() straight after registering or pairing, or while it
+     * still holds an old link to that device, and then accepts the same request a moment later. So a refusal is
+     * retried: once as is, once after letting go of any stale link, and once more. Only then is it reported, so a
+     * tap never silently does nothing.
+     */
+    @SuppressLint("MissingPermission")
+    private fun attemptConnect(device: BluetoothDevice, n: Int) {
+        val h = hid ?: return
         val ok = h.connect(device)
-        note("connect(${device.address}) returned $ok")
-        if (!ok) state = State.Ready
+        val cs = runCatching { h.getConnectionState(device) }.getOrNull()
+        note("connect(${device.address}) returned $ok, stack state=$cs, bond=${device.bondState}, registered=$appRegistered, attempt ${n + 1}")
+        if (ok || cs == BluetoothProfile.STATE_CONNECTED || cs == BluetoothProfile.STATE_CONNECTING) return
+        if (n < 3) {
+            main.postDelayed({
+                if (connectingTo == device && state == State.Connecting) {
+                    if (n == 1) runCatching { h.disconnect(device) }
+                    attemptConnect(device, n + 1)
+                }
+            }, 900)
+            return
+        }
+        note("connect(${device.address}) was refused every time; giving up")
+        connectingTo = null
+        state = State.Ready
+        if (!autoAttempt) connectFailure = device.name ?: device.address
+        if (device == autoCurrent) main.post { advanceAuto() }
     }
 
     fun disconnect() {
