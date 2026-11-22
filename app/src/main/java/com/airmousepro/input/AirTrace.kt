@@ -112,7 +112,7 @@ object AirTrace {
             )
             appendLine(
                 String.format(
-                    Locale.US, "Tremor filter: calm below %.1f°/s, cursor held by the stillness lock %.0f%% of the time",
+                    Locale.US, "Tremor filter: %.1f°/s of hand shake filtered out, cursor held by the stillness lock %.0f%% of the time",
                     calm, 100.0 * lockedSamples / samples,
                 ),
             )
