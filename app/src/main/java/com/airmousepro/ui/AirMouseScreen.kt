@@ -161,7 +161,7 @@ private fun AirControls(engine: AirMouseEngine, active: Boolean, onToggle: () ->
                 .clickable(onClick = onToggle),
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Rounded.PowerSettingsNew, contentDescription = if (active) "Pause pointer" else "Resume pointer", tint = androidx.compose.ui.graphics.Color.White) }
-        SmallAction(Icons.Rounded.RestartAlt, "Zero drift") { engine.zeroDrift() }
+        SmallAction(Icons.Rounded.RestartAlt, "Zero drift and centre") { engine.zeroDrift(); engine.recenter() }
         // Cycle which edge of the phone points at the screen.
         val edge = listOf("Top", "Right", "Left")[settings.airPointing.coerceIn(0, 2)]
         Box(

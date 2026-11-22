@@ -6,12 +6,16 @@ package com.airmousepro.hid
  *  - relative mouse with vertical wheel and horizontal pan (id 2)
  *  - consumer control: media, volume, Home/Back (id 3)
  *  - gamepad: 16 buttons, hat, two sticks, two triggers (id 4)
+ *  - absolute pointer for the air mouse (id 5)
  */
 object HidDescriptor {
     const val ID_KEYBOARD = 1
     const val ID_MOUSE = 2
     const val ID_CONSUMER = 3
     const val ID_GAMEPAD = 4
+    const val ID_ABS_POINTER = 5
+    /** Largest absolute pointer coordinate, the right and bottom edge of the screen. */
+    const val ABS_MAX = 32767
 
     val bytes: ByteArray = intArrayOf(
         // Keyboard
@@ -53,5 +57,16 @@ object HidDescriptor {
         0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x04, 0x81, 0x02,
         0x09, 0x33, 0x09, 0x34, 0x15, 0x00, 0x26, 0xFF, 0x00, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
         0xC0,
+        // Absolute pointer: X and Y from 0 to 32767 across the whole screen. The air mouse uses it on computers so the
+        // cursor goes exactly where the phone says, untouched by the computer's own mouse acceleration and speed.
+        // Its buttons are never set: clicks go through the relative mouse above, so no button can get stuck here.
+        0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x85, ID_ABS_POINTER,
+        0x09, 0x01, 0xA1, 0x00,
+        0x05, 0x09, 0x19, 0x01, 0x29, 0x03, 0x15, 0x00, 0x25, 0x01,
+        0x95, 0x03, 0x75, 0x01, 0x81, 0x02,
+        0x95, 0x01, 0x75, 0x05, 0x81, 0x01,
+        0x05, 0x01, 0x09, 0x30, 0x09, 0x31,
+        0x16, 0x00, 0x00, 0x26, 0xFF, 0x7F, 0x75, 0x10, 0x95, 0x02, 0x81, 0x02,
+        0xC0, 0xC0,
     ).map { it.toByte() }.toByteArray()
 }

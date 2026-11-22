@@ -143,6 +143,12 @@ fun SettingsScreen(hid: HidController, onBack: () -> Unit, onReplaySetup: () -> 
                 SettingRow("Volume keys as buttons", "Volume up clicks (hold to drag), volume down right-clicks.", s.airVolumeKeys) { s.airVolumeKeys = it }
                 SettingRow("Shake to pause", "Shake twice to pause or resume the pointer.", s.airShake) { s.airShake = it }
                 SettingRow("Wrist twist for back and forward", "A quick roll of your wrist presses Alt+Left or Alt+Right.", s.airTwist) { s.airTwist = it }
+                SettingRow(
+                    "Point where you aim (computers)",
+                    "Steers the cursor to an exact spot, so the computer's mouse acceleration and speed cannot distort it. Pair again once after turning this on for the first time.",
+                    s.airAbsolute,
+                ) { s.airAbsolute = it }
+                SettingRow("Acceleration", "Slow turns are finer, quick turns go further. Off keeps a fixed turn-to-distance ratio.", s.airAccel) { s.airAccel = it }
             }
 
             SettingsCard("Connection") {
@@ -463,7 +469,9 @@ private fun Feature(text: String) {
 private fun DeveloperSection(hid: HidController) {
     val ctx = LocalContext.current
     // Info block first, then the log, so copying gives the full picture in one paste.
-    val report = hid.diagnostics() + "\n--- Log ---\n" + hid.log.joinToString("\n").ifEmpty { "(empty)" }
+    val s = ctx.appSettings
+    val report = hid.diagnostics() + "\n" + com.airmousepro.input.AirTrace.report(s.airSensitivity, s.airAccel) +
+        "\n--- Log ---\n" + hid.log.joinToString("\n").ifEmpty { "(empty)" }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(onClick = {

@@ -79,7 +79,10 @@ class AppSettings(context: Context) {
     var airVolumeKeys by BoolPref("air_volume_keys", true)
     var airShake by BoolPref("air_shake", false)
     var airTwist by BoolPref("air_twist", false)
-
+    /** On computers, steer the cursor as an absolute position so the computer's mouse acceleration cannot distort it. */
+    var airAbsolute by BoolPref("air_absolute", true)
+    /** Gentle acceleration: slow turns are finer, quick turns go further. Off gives a fixed angle-to-distance ratio. */
+    var airAccel by BoolPref("air_accel", true)
     // ---- Connection ----
     var autoReconnect by BoolPref("auto_reconnect", true)
     var lastHost by StringPref("last_host", "")

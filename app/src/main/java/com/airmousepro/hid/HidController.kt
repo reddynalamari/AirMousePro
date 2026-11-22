@@ -61,6 +61,7 @@ class HidController(private val context: Context) {
 
     /** The user's own choice from the picker. It is remembered for the connected device, so it sticks next time. */
     fun setTarget(os: Int) {
+        note("target changed by hand: ${settings.os} -> $os (device ${host?.address ?: "none"})")
         settings.os = os
         host?.address?.let { settings.setOsFor(it, os) }
     }
@@ -120,6 +121,21 @@ class HidController(private val context: Context) {
 
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private var failedSends = 0
+    @Volatile private var sentKeyboard = 0
+    @Volatile private var sentMouse = 0
+    @Volatile private var sentConsumer = 0
+    @Volatile private var noHostDrops = 0
+    @Volatile private var lastSentMs = 0L
+
+    private fun countSent(id: Int) {
+        when (id) {
+            HidDescriptor.ID_KEYBOARD -> sentKeyboard++
+            HidDescriptor.ID_MOUSE -> sentMouse++
+            HidDescriptor.ID_CONSUMER -> sentConsumer++
+        }
+        lastSentMs = System.currentTimeMillis()
+    }
+
     @Volatile private var sendFailures = 0
     @Volatile private var retriesUsed = 0
     @Volatile private var watchdogReleases = 0
@@ -145,6 +161,7 @@ class HidController(private val context: Context) {
         appendLine("Paired: " + pairedDevices().joinToString { "${it.name} ${it.address} bond=${it.bondState}" })
         appendLine("Connected to: ${hostName ?: "-"} (${host?.address ?: "-"}), target=$target, tvMode=$tvMode")
         appendLine("Registration: attempts=$regAttempts pending=$regPending")
+        appendLine("Sent to the host: keyboard=$sentKeyboard, mouse=$sentMouse, air pointer=$sentAbsolute, media=$sentConsumer, dropped for no host=$noHostDrops, last sent ${if (lastSentMs == 0L) "never" else "${(System.currentTimeMillis() - lastSentMs) / 1000}s ago"}")
         appendLine("Reports: refused=$sendFailures, retried=$retriesUsed, watchdog releases=$watchdogReleases, characters typed=$charsTyped, queued=$typingPending")
         appendLine("Gamepad reports: sent=$gamepadSent failed=$gamepadFailed")
         appendLine("Keys down now: keyboard=$kbDown held-on-purpose=$kbHeld, mouse buttons=$mouseButtons")
@@ -654,8 +671,9 @@ class HidController(private val context: Context) {
 
     /** Runs on the sender thread only. */
     private fun sendNow(id: Int, data: ByteArray) {
-        val d = host ?: return
+        val d = host ?: run { noHostDrops++; return }
         val ok = hid?.sendReport(d, id, data) ?: false
+        if (ok) countSent(id)
         if (id == HidDescriptor.ID_GAMEPAD) {
             if (ok) gamepadSent++ else gamepadFailed++
         }
@@ -682,6 +700,7 @@ class HidController(private val context: Context) {
             if (ok) break
             try { Thread.sleep(if (release) 8 else 5) } catch (_: InterruptedException) { break }
         }
+        if (ok) countSent(id)
         if (n > 1) {
             retriesUsed++
             // Retries are the early sign of a stuck key, so they are logged, but not every one on a long paste.
@@ -843,6 +862,47 @@ class HidController(private val context: Context) {
             sendNow(HidDescriptor.ID_MOUSE, byteArrayOf(mouseButtons.toByte(), cx.toByte(), cy.toByte(), cw.toByte(), cp.toByte()))
             x -= cx; y -= cy; w -= cw; p -= cp
         }
+    }
+
+    // ---- Absolute pointer (air mouse on computers) ----
+
+    private var absX = -1
+    private var absY = -1
+    private var absQueued = false
+    @Volatile private var lastAbsNs = 0L
+    @Volatile var sentAbsolute = 0; private set
+
+    /**
+     * Puts the cursor at ([x], [y]) on a 0..[HidDescriptor.ABS_MAX] grid covering the screen. Only the newest position
+     * matters, so positions that arrive faster than the link carries are merged into the latest one.
+     */
+    fun pointTo(x: Int, y: Int) {
+        synchronized(pendLock) {
+            absX = x.coerceIn(0, HidDescriptor.ABS_MAX)
+            absY = y.coerceIn(0, HidDescriptor.ABS_MAX)
+            if (absQueued) return
+            absQueued = true
+            val wait = (MOVE_GAP_NS - (System.nanoTime() - lastAbsNs)).coerceAtLeast(0L)
+            sender.schedule({ flushAbs() }, wait, TimeUnit.NANOSECONDS)
+        }
+    }
+
+    /** Runs on the sender thread only. */
+    private fun flushAbs() {
+        val x: Int
+        val y: Int
+        synchronized(pendLock) {
+            x = absX; y = absY
+            absQueued = false
+        }
+        if (x < 0) return
+        lastAbsNs = System.nanoTime()
+        val d = host ?: return
+        val ok = hid?.sendReport(
+            d, HidDescriptor.ID_ABS_POINTER,
+            byteArrayOf(0, (x and 0xFF).toByte(), (x shr 8).toByte(), (y and 0xFF).toByte(), (y shr 8).toByte()),
+        ) ?: false
+        if (ok) { sentAbsolute++; lastSentMs = System.currentTimeMillis() }
     }
 
     /** Positive [vertical] scrolls up, positive [horizontal] scrolls right, in mouse-wheel notches. */

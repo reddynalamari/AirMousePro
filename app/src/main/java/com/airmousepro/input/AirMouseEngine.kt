@@ -12,10 +12,11 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import com.airmousepro.data.AppSettings
 import com.airmousepro.hid.HidController
+import com.airmousepro.hid.HidDescriptor
 import com.airmousepro.hid.Key
 import com.airmousepro.hid.Mod
 import kotlin.math.abs
-import kotlin.math.min
+
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
@@ -53,8 +54,6 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
     private var lastNs = 0L
     private var lastSendNs = 0L
     @Volatile private var freezeUntilNs = 0L
-    private val filterX = AdaptiveFilter()
-    private val filterY = AdaptiveFilter()
     private var remX = 0f
     private var remY = 0f
 
@@ -97,30 +96,6 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         calSum.fill(0f)
         calCount = 0
         calibrateUntilNs = SystemClock.elapsedRealtimeNanos() + 600_000_000L
-    }
-
-    /**
-     * Smooths a turn rate with a filter whose strength depends on how fast the phone is turning (a "1 euro" filter).
-     * Slow and steady: heavy smoothing, so hand tremor does not move the pointer. Fast: almost none, so there is no lag.
-     */
-    private class AdaptiveFilter {
-        private var x = 0f
-        private var dx = 0f
-        private var primed = false
-
-        fun filter(v: Float, dt: Float): Float {
-            if (!primed) { primed = true; x = v; return v }
-            val rate = (v - x) / dt
-            dx += (rate - dx) * alpha(D_CUTOFF, dt)
-            val cutoff = MIN_CUTOFF + BETA * abs(dx)
-            x += (v - x) * alpha(cutoff, dt)
-            return x
-        }
-
-        private fun alpha(cutoff: Float, dt: Float): Float {
-            val tau = 1f / (2f * Math.PI.toFloat() * cutoff)
-            return 1f / (1f + tau / dt)
-        }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
@@ -206,56 +181,126 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
             return
         }
 
-        // Adaptive smoothing: a steady hand is filtered hard so the pointer sits still, and the filter opens up as soon as
-        // the phone really moves, so quick sweeps do not lag. Then a soft dead zone removes the last of the tremor
-        // without a jump when movement starts.
-        val fx = filterX.filter(yawRate, dt)
-        val fy = filterY.filter(pitchRate, dt)
-        val ox = soft(fx, DEAD_ZONE)
-        val oy = soft(fy, DEAD_ZONE)
+        // ---- The pointer model ----
+        // Built the way well-regarded gyro pointing is built (LG's Magic Remote, and the gyro-aiming practice documented
+        // on GyroWiki): everything is in real-world degrees, a fixed turn of the wrist always covers the same part of the
+        // screen, and filtering only touches the slow, tiny movements where hand tremor lives, never quick sweeps.
+        val yawDeg = yawRate * RAD2DEG
+        val pitchDeg = pitchRate * RAD2DEG
+        val aimSpeed = sqrt(yawDeg * yawDeg + pitchDeg * pitchDeg)
 
-        // Slow movement is damped for precision, fast movement is boosted to cross the screen. Only the aiming turn
-        // counts: rolling the wrist must not speed the pointer up.
-        val aim = sqrt(ox * ox + oy * oy)
-        val boost = 0.55f + 1.1f * min(aim / 3f, 1f)
-        val gain = BASE_GAIN * settings.airSensitivity * boost
-        remX += -ox * dt * gain
-        remY += -oy * dt * gain
+        // 1. Tightening: below a couple of degrees a second, movement is scaled down smoothly toward zero. A held phone
+        //    sits still without a hard dead zone, and there is no jump when movement starts.
+        val tight = if (aimSpeed < TIGHT_DEG) aimSpeed / TIGHT_DEG else 1f
+        val tx = yawDeg * tight
+        val ty = pitchDeg * tight
+
+        // 2. Soft tiered smoothing: slow movement is averaged over the last few samples, fast movement passes straight
+        //    through, and speeds in between blend the two. Precise aiming is steady and sweeps have no lag.
+        ringX[ringI] = tx
+        ringY[ringI] = ty
+        ringI = (ringI + 1) % SMOOTH_N
+        val avgX = ringX.sum() / SMOOTH_N
+        val avgY = ringY.sum() / SMOOTH_N
+        val direct = ((aimSpeed - SMOOTH_LO_DEG) / (SMOOTH_HI_DEG - SMOOTH_LO_DEG)).coerceIn(0f, 1f)
+        val sx = tx * direct + avgX * (1f - direct)
+        val sy = ty * direct + avgY * (1f - direct)
+
+        // 3. Sensitivity in screen widths per degree. At the default, about 38 degrees of turn crosses the screen, close
+        //    to how far a TV air remote is turned. Optional gentle acceleration makes slow turns finer and quick turns
+        //    go further, without changing which way or when the pointer moves.
+        val perDegree = settings.airSensitivity / DEG_PER_WIDTH
+        val accel = if (settings.airAccel) {
+            ACC_SLOW + (ACC_FAST - ACC_SLOW) * ((aimSpeed - ACC_LO_DEG) / (ACC_HI_DEG - ACC_LO_DEG)).coerceIn(0f, 1f)
+        } else {
+            1f
+        }
+        // Turning right is a negative yaw rate and tilting up a positive pitch rate, hence the minus signs. The screen
+        // is about 16:9, so the same angle is a larger share of its height than of its width.
+        val dW = -sx * dt * perDegree * accel
+        val dH = -sy * dt * perDegree * accel * ASPECT
 
         val now = e.timestamp
         val frozen = !active || (touching && !dragging) || now < freezeUntilNs
+        val absolute = settings.airAbsolute && hid.target in 0..2
         if (frozen) {
             remX = 0f
             remY = 0f
-            return
+        } else if (absolute) {
+            // The cursor is kept here as a position on the screen. Pushing past an edge just holds it at the edge, and
+            // coming back moves it at once, which also quietly lines the pointer back up with where the phone points.
+            posX = (posX + dW).coerceIn(0f, 1f)
+            posY = (posY + dH).coerceIn(0f, 1f)
+            val ax = (posX * HidDescriptor.ABS_MAX).roundToInt()
+            val ay = (posY * HidDescriptor.ABS_MAX).roundToInt()
+            if ((ax != lastAbsX || ay != lastAbsY) && now - lastSendNs >= MIN_SEND_NS) {
+                hid.pointTo(ax, ay)
+                lastAbsX = ax
+                lastAbsY = ay
+                lastSendNs = now
+                recordAbs(now)
+            }
+        } else {
+            remX += dW * REL_COUNTS_WIDE
+            remY += dH * REL_COUNTS_HIGH
+            if (now - lastSendNs >= MIN_SEND_NS) {
+                val ix = remX.roundToInt()
+                val iy = remY.roundToInt()
+                if (ix != 0 || iy != 0) {
+                    hid.moveMouse(ix, iy)
+                    record(now, ix, iy)
+                    remX -= ix
+                    remY -= iy
+                    lastSendNs = now
+                }
+            }
         }
-        if (now - lastSendNs < MIN_SEND_NS) return
-        val ix = remX.roundToInt()
-        val iy = remY.roundToInt()
-        if (ix != 0 || iy != 0) {
-            hid.moveMouse(ix, iy)
-            record(now, ix, iy)
-            remX -= ix
-            remY -= iy
-            lastSendNs = now
-        }
+
+        AirTrace.sample(
+            now, dt, yawDeg, pitchDeg, aimSpeed, dW, dH, frozen, absolute,
+            if (absolute) posX else Float.NaN, if (absolute) posY else Float.NaN,
+            sqrt(bias[0] * bias[0] + bias[1] * bias[1] + bias[2] * bias[2]) * RAD2DEG,
+        )
     }
 
-    private fun soft(v: Float, dead: Float): Float = when {
-        v > dead -> v - dead
-        v < -dead -> v + dead
-        else -> 0f
+    // Recent tremor-filter input, for the tiered smoothing.
+    private val ringX = FloatArray(SMOOTH_N)
+    private val ringY = FloatArray(SMOOTH_N)
+    private var ringI = 0
+
+    // Absolute mode: the cursor's place on the screen, 0..1 across and down. It starts in the middle.
+    private var posX = 0.5f
+    private var posY = 0.5f
+    private var lastAbsX = -1
+    private var lastAbsY = -1
+
+    /** Puts the cursor in the middle of the screen. Used by the re-centre button in absolute mode. */
+    fun recenter() {
+        if (!(settings.airAbsolute && hid.target in 0..2)) return
+        posX = 0.5f
+        posY = 0.5f
+        lastAbsX = (posX * HidDescriptor.ABS_MAX).roundToInt()
+        lastAbsY = lastAbsX
+        hid.pointTo(lastAbsX, lastAbsY)
     }
 
     // The last moments of pointer movement, so a tap can undo the drift the thumb causes just before it lands.
     private val trailT = LongArray(TRAIL)
     private val trailX = IntArray(TRAIL)
     private val trailY = IntArray(TRAIL)
+    private val trailAx = FloatArray(TRAIL)
+    private val trailAy = FloatArray(TRAIL)
     private var trailN = 0
 
     private fun record(t: Long, x: Int, y: Int) = synchronized(trailT) {
         val i = trailN % TRAIL
         trailT[i] = t; trailX[i] = x; trailY[i] = y
+        trailN++
+    }
+
+    private fun recordAbs(t: Long) = synchronized(trailT) {
+        val i = trailN % TRAIL
+        trailT[i] = t; trailAx[i] = posX; trailAy[i] = posY
         trailN++
     }
 
@@ -265,6 +310,27 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
      */
     fun beginClick() {
         val now = SystemClock.elapsedRealtimeNanos()
+        if (settings.airAbsolute && hid.target in 0..2) {
+            var bx = Float.NaN
+            var by = Float.NaN
+            synchronized(trailT) {
+                for (k in 1..minOf(trailN, TRAIL)) {
+                    val i = (trailN - k) % TRAIL
+                    if (now - trailT[i] > REWIND_NS) break
+                    bx = trailAx[i]; by = trailAy[i]
+                }
+                trailN = 0
+            }
+            // A big movement was a deliberate sweep, not a nudge, so leave it alone.
+            if (!bx.isNaN() && abs(bx - posX) <= REWIND_MAX_SHARE && abs(by - posY) <= REWIND_MAX_SHARE) {
+                posX = bx
+                posY = by
+                lastAbsX = (posX * HidDescriptor.ABS_MAX).roundToInt()
+                lastAbsY = (posY * HidDescriptor.ABS_MAX).roundToInt()
+                hid.pointTo(lastAbsX, lastAbsY)
+            }
+            return
+        }
         var sx = 0
         var sy = 0
         synchronized(trailT) {
@@ -308,12 +374,21 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
     private companion object {
         const val SAMPLE_US = 8_000          // ask the gyro for about 125 Hz
         const val MIN_SEND_NS = 7_000_000L   // never send mouse reports faster than about 140 Hz
-        const val BASE_GAIN = 1000f          // counts per radian before sensitivity and boost
-        const val DEAD_ZONE = 0.035f         // rad/s, hand tremor at rest
-        const val STILL_RATE = 0.09f         // a phone held in a hand is never perfectly still
-        const val MIN_CUTOFF = 3.2f          // Hz: smoothing when the phone is steady
-        const val BETA = 0.4f                // how quickly smoothing opens up as turning speeds up
-        const val D_CUTOFF = 1.5f
+        const val STILL_RATE = 0.09f         // rad/s: a phone held in a hand is never perfectly still
+        const val RAD2DEG = 57.29578f
+        const val TIGHT_DEG = 2.2f           // deg/s: below this, movement fades smoothly toward zero (tremor)
+        const val SMOOTH_N = 8               // samples averaged for slow movement, about 64 ms at 125 Hz
+        const val SMOOTH_LO_DEG = 4f         // deg/s: fully smoothed below this
+        const val SMOOTH_HI_DEG = 14f        // deg/s: not smoothed at all above this
+        const val DEG_PER_WIDTH = 38f        // degrees of turn that cross the screen at sensitivity 1
+        const val ASPECT = 16f / 9f          // a screen is this much wider than tall
+        const val ACC_SLOW = 0.6f            // sensitivity multiplier for slow, careful turns
+        const val ACC_FAST = 1.5f            // and for quick sweeps
+        const val ACC_LO_DEG = 15f           // deg/s where acceleration starts
+        const val ACC_HI_DEG = 140f          // deg/s where it tops out
+        const val REL_COUNTS_WIDE = 1920f    // relative mode: mouse counts for one screen width
+        const val REL_COUNTS_HIGH = 1080f
+        const val REWIND_MAX_SHARE = 0.03f   // absolute mode: a click never undoes more than 3% of the screen
         const val TRAIL = 24
         const val REWIND_NS = 90_000_000L
         const val REWIND_MAX_PX = 70
