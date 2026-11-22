@@ -22,6 +22,8 @@ object AirTrace {
     @Volatile private var restSpeed = 0f
     @Volatile private var peakSpeed = 0f
     @Volatile private var frozenSamples = 0L
+    @Volatile private var lockedSamples = 0L
+    @Volatile private var calm = 0f
     @Volatile private var absolute = false
     @Volatile private var posX = Float.NaN
     @Volatile private var posY = Float.NaN
@@ -39,19 +41,21 @@ object AirTrace {
     private val sweeps = ArrayDeque<String>()
 
     fun reset() = synchronized(this) {
-        samples = 0; firstNs = 0; lastNs = 0; restSpeed = 0f; peakSpeed = 0f; frozenSamples = 0
+        samples = 0; firstNs = 0; lastNs = 0; restSpeed = 0f; peakSpeed = 0f; frozenSamples = 0; lockedSamples = 0
         inSweep = false; sweeps.clear()
     }
 
     /** Called for every gyro sample, on the sensor thread. Angles in degrees per second, screen moves as shares of it. */
     fun sample(
         now: Long, dt: Float, yawDps: Float, pitchDps: Float, speed: Float, dW: Float, dH: Float,
-        frozen: Boolean, abs: Boolean, x: Float, y: Float, bias: Float,
+        frozen: Boolean, abs: Boolean, lock: Boolean, calmDps: Float, x: Float, y: Float, bias: Float,
     ) = synchronized(this) {
         if (firstNs == 0L) firstNs = now
         lastNs = now
         samples++
         if (frozen) frozenSamples++
+        if (lock) lockedSamples++
+        calm = calmDps
         absolute = abs
         posX = x
         posY = y
@@ -104,6 +108,12 @@ object AirTrace {
                 String.format(
                     Locale.US, "Hand at rest: %.2f°/s, drift correction %.2f°/s, fastest turn %.0f°/s",
                     restSpeed, biasDps, peakSpeed,
+                ),
+            )
+            appendLine(
+                String.format(
+                    Locale.US, "Tremor filter: calm below %.1f°/s, cursor held by the stillness lock %.0f%% of the time",
+                    calm, 100.0 * lockedSamples / samples,
                 ),
             )
             appendLine(

@@ -189,9 +189,14 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         val pitchDeg = pitchRate * RAD2DEG
         val aimSpeed = sqrt(yawDeg * yawDeg + pitchDeg * pitchDeg)
 
-        // 1. Tightening: below a couple of degrees a second, movement is scaled down smoothly toward zero. A held phone
-        //    sits still without a hard dead zone, and there is no jump when movement starts.
-        val tight = if (aimSpeed < TIGHT_DEG) aimSpeed / TIGHT_DEG else 1f
+        // How much this hand shakes when it is holding still, learned as it goes. Everything below adapts to it, so a
+        // steadier hand gets finer control and a shakier one gets more tremor rejection.
+        if (aimSpeed < TREMOR_SAMPLE_DEG) tremor += (aimSpeed - tremor) * 0.01f
+        val calm = (tremor * TREMOR_MARGIN).coerceIn(TIGHT_MIN_DEG, TIGHT_MAX_DEG)
+
+        // 1. Tightening: below the calm speed, movement fades out with the square of its speed, so the small fast
+        //    wobbles of a held hand are almost cancelled while a deliberate slow move still gets through.
+        val tight = if (aimSpeed < calm) (aimSpeed / calm).let { it * it } else 1f
         val tx = yawDeg * tight
         val ty = pitchDeg * tight
 
@@ -217,10 +222,42 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         }
         // Turning right is a negative yaw rate and tilting up a positive pitch rate, hence the minus signs. The screen
         // is about 16:9, so the same angle is a larger share of its height than of its width.
-        val dW = -sx * dt * perDegree * accel
-        val dH = -sy * dt * perDegree * accel * ASPECT
+        var dW = -sx * dt * perDegree * accel
+        var dH = -sy * dt * perDegree * accel * ASPECT
 
+        // 4. Stillness lock, the part that makes a TV air remote feel planted: once the phone has been calm for a
+        //    moment the cursor locks in place, and small wobbles add up inside a tiny circle without moving it. Only a
+        //    move that leaves the circle (or a clearly quick turn) releases it, and then the cursor starts from where
+        //    it was, minus the circle, so there is no jump.
         val now = e.timestamp
+        if (aimSpeed < calm) {
+            if (calmSince == 0L) calmSince = now
+            if (!locked && now - calmSince > LOCK_AFTER_NS) {
+                locked = true
+                pendW = 0f
+                pendH = 0f
+            }
+        } else {
+            calmSince = 0L
+        }
+        if (locked) {
+            pendW += dW
+            pendH += dH / ASPECT
+            val r = sqrt(pendW * pendW + pendH * pendH)
+            val radius = LOCK_RADIUS_DEG * perDegree
+            if (r > radius || aimSpeed > calm * LOCK_BREAK_FACTOR) {
+                locked = false
+                val k = if (r > radius) (r - radius) / r else 0f
+                dW = pendW * k
+                dH = pendH * k * ASPECT
+                pendW = 0f
+                pendH = 0f
+            } else {
+                dW = 0f
+                dH = 0f
+            }
+        }
+
         val frozen = !active || (touching && !dragging) || now < freezeUntilNs
         val absolute = settings.airAbsolute && hid.target in 0..2
         if (frozen) {
@@ -257,11 +294,18 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         }
 
         AirTrace.sample(
-            now, dt, yawDeg, pitchDeg, aimSpeed, dW, dH, frozen, absolute,
+            now, dt, yawDeg, pitchDeg, aimSpeed, dW, dH, frozen, absolute, locked, calm,
             if (absolute) posX else Float.NaN, if (absolute) posY else Float.NaN,
             sqrt(bias[0] * bias[0] + bias[1] * bias[1] + bias[2] * bias[2]) * RAD2DEG,
         )
     }
+
+    // Tremor learning and the stillness lock.
+    private var tremor = 2f
+    private var calmSince = 0L
+    private var locked = false
+    private var pendW = 0f
+    private var pendH = 0f
 
     // Recent tremor-filter input, for the tiered smoothing.
     private val ringX = FloatArray(SMOOTH_N)
@@ -376,7 +420,13 @@ class AirMouseEngine(context: Context, private val hid: HidController, private v
         const val MIN_SEND_NS = 7_000_000L   // never send mouse reports faster than about 140 Hz
         const val STILL_RATE = 0.09f         // rad/s: a phone held in a hand is never perfectly still
         const val RAD2DEG = 57.29578f
-        const val TIGHT_DEG = 2.2f           // deg/s: below this, movement fades smoothly toward zero (tremor)
+        const val TREMOR_SAMPLE_DEG = 9f     // deg/s: slower than this counts toward learning the resting tremor
+        const val TREMOR_MARGIN = 1.6f       // the calm speed sits this far above the resting tremor
+        const val TIGHT_MIN_DEG = 2.5f       // deg/s: the calm speed never goes below this
+        const val TIGHT_MAX_DEG = 8f         // or above this
+        const val LOCK_AFTER_NS = 120_000_000L // calm this long and the cursor locks in place
+        const val LOCK_RADIUS_DEG = 0.18f    // wobbles smaller than this turn never move a locked cursor
+        const val LOCK_BREAK_FACTOR = 2.5f   // a turn this many times the calm speed releases the lock at once
         const val SMOOTH_N = 8               // samples averaged for slow movement, about 64 ms at 125 Hz
         const val SMOOTH_LO_DEG = 4f         // deg/s: fully smoothed below this
         const val SMOOTH_HI_DEG = 14f        // deg/s: not smoothed at all above this
